@@ -2,6 +2,7 @@
 #include <string.h>
 #include "../include/history.h"
 
+//当前状态进栈
 void pushState(GameState *game) {
     HistoryNode *node = (HistoryNode *)malloc(sizeof(HistoryNode));
     if (!node) return; // Allocation failed
@@ -17,6 +18,7 @@ void pushState(GameState *game) {
     game->historyHead = node;
 }
 
+//悔棋出栈
 int undoMove(GameState *game) {
     if (!game->historyHead) {
         return 0; // Empty stack
@@ -35,6 +37,7 @@ int undoMove(GameState *game) {
     return 1;
 }
 
+//清空历史记录
 void clearHistory(GameState *game) {
     while (game->historyHead) {
         HistoryNode *temp = game->historyHead;

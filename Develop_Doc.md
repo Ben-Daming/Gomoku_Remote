@@ -64,9 +64,10 @@ Gomoku/
 
 ### 3.4 历史模块 (`src/history.c`)
 实现悔棋功能。
-*   使用链表栈 (`HistoryNode`) 存储每一步的 `GameState` 快照。
+*   使用栈 (`HistoryNode`) 存储每一步的 `GameState` 快照。
 *   `pushState`: 落子前保存状态。
 *   `undoMove`: 弹出栈顶状态以恢复局面。
+*   `clearHistory`: free掉所有历史记录（游戏结束时调用）。
 
 ### 3.5 AI 模块 (`src/ai.c`)
 负责 PvE 模式下的电脑走棋。
@@ -77,8 +78,10 @@ Gomoku/
 ### 3.6 主程序 (`src/main.c`)
 处理命令行参数解析和游戏主循环。
 *   支持参数:
+*   *   `--help`: 查看说明。
     *   `--mode <pvp|pve>`: 设置模式。
     *   `--rules <std|simple>`: 设置规则。
+*   如果是pve，在主循环中根据指示输入player执黑/执白。
 *   主循环处理用户输入（坐标如 "H8"、命令 "undo"、"quit"），调用各模块接口驱动游戏。
 
 ## 4. 编译与运行
@@ -103,3 +106,56 @@ make
 1.  **完善禁手规则**: 实现完整的三三禁手和四四禁手判定算法。
 2.  **AI 升级**: 实现 Minimax 算法与 Alpha-Beta 剪枝，增加搜索深度配置。
 3.  **Swap 规则**: 增加 Swap2 等开局规则的支持。
+
+## 6. 调用关系网
+
+以下是项目中各模块函数之间的调用关系图：
+
+```mermaid
+graph TD
+    %% Nodes
+    main[main.c / main]
+    
+    subgraph Board_Module [Board Module]
+        initGame
+        printBoard
+        makeMove
+        isBoardFull
+    end
+    
+    subgraph Rules_Module [Rules Module]
+        checkWin
+        checkValidMove
+        isForbidden
+    end
+    
+    subgraph History_Module [History Module]
+        pushState
+        undoMove
+        clearHistory
+    end
+    
+    subgraph AI_Module [AI Module]
+        getAIMove
+    end
+
+    %% Edges from main
+    main --> initGame
+    main --> printBoard
+    main --> checkWin
+    main --> isBoardFull
+    main --> getAIMove
+    main --> makeMove
+    main --> undoMove
+    main --> clearHistory
+
+    %% Edges from Board Module
+    makeMove --> checkValidMove
+    makeMove --> pushState
+
+    %% Edges from AI Module
+    getAIMove --> checkValidMove
+    
+    %% Edges from Rules Module
+    checkValidMove -.-> isForbidden
+```

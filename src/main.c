@@ -15,7 +15,7 @@ void printHelp() {
     printf("  --rules <std|simple>  Set rules (default: std)\n");
 }
 
-//LLM调库实现stdin
+//LLM写的调库实现stdin
 int parseCoord(const char *str, int *row, int *col) {
     if (!str) return 0;
     int len = strlen(str);
@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
     int running = 1;
 
     while (running) {
-        
+        printBoard(&game);
         int winner = checkWin(&game);
         if (winner) {
             printf("Player %s wins!\n", winner == PLAYER_BLACK ? "Black" : "White");
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (mode == MODE_PVE && game.currentPlayer == aiPlayer) {
-            // AI Turn
+            // AI move
             printf("AI is thinking...\n");
             Position aiMove = getAIMove(&game);
             if (aiMove.row == -1 || aiMove.col == -1) {
@@ -120,7 +120,6 @@ int main(int argc, char *argv[]) {
                 break;
             }
             makeMove(&game, aiMove.row, aiMove.col);
-            printBoard(&game);
             continue;
         }
 

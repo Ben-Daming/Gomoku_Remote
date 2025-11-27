@@ -1,15 +1,16 @@
 #include "../include/rules.h"
 #include <stdio.h>
 
-// Directions: Horizontal, Vertical, Diagonal \, Diagonal /
+// 方向：水平，垂直，对角线 \, 对角线 /
 static int dr[] = {0, 1, 1, 1};
 static int dc[] = {1, 0, 1, -1};
 
+// 辅助函数：判断位置是否在棋盘里
 static int isValidPos(int r, int c) {
     return r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE;
 }
 
-// Helper to count consecutive stones in a direction
+// 辅助函数：统计某一方向上连续的棋子数
 static int countLine(const GameState *game, int r, int c, int dirIdx, Player p) {
     int count = 1;
     // Forward
@@ -29,6 +30,7 @@ static int countLine(const GameState *game, int r, int c, int dirIdx, Player p) 
     return count;
 }
 
+// 检查胜利条件，返回胜利者 (PLAYER_BLACK/WHITE) 或 0
 int checkWin(const GameState *game) {
     if (game->moveCount == 0) return 0;
     
