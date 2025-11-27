@@ -13,14 +13,14 @@ static int isValidPos(int r, int c) {
 // 辅助函数：统计某一方向上连续的棋子数
 static int countLine(const GameState *game, int r, int c, int dirIdx, Player p) {
     int count = 1;
-    // Forward
+    // 正向统计
     for (int i = 1; i < 6; i++) {
         int nr = r + dr[dirIdx] * i;
         int nc = c + dc[dirIdx] * i;
         if (isValidPos(nr, nc) && game->board[nr][nc] == (CellState)p) count++;
         else break;
     }
-    // Backward
+    // 反向统计
     for (int i = 1; i < 6; i++) {
         int nr = r - dr[dirIdx] * i;
         int nc = c - dc[dirIdx] * i;
@@ -45,12 +45,12 @@ int checkWin(const GameState *game) {
         if (p == PLAYER_WHITE) {
             if (count >= 5) return p;
         } else {
-            // Black
+            // 黑方
             if (game->ruleType == RULE_STANDARD) {
                 if (count == 5) return p;
-                // Overline (>5) is not a win for Black in Standard, it's forbidden.
-                // But if we are here, the move was already made.
-                // If checkValidMove works, this shouldn't happen.
+                // 超过五连（长连）在标准规则下黑方不胜，为禁手。
+                // 但如果走到这里，说明已经下子。
+                // 如果 checkValidMove 正常工作，这里不应发生。
             } else {
                 if (count >= 5) return p;
             }
@@ -59,11 +59,155 @@ int checkWin(const GameState *game) {
     return 0;
 }
 
-// Simplified forbidden check for now. 
-// Implementing full Renju 3-3 and 4-4 detection is complex and requires analyzing open ends.
-// I will implement Overline check and a placeholder for 3-3/4-4.
-// TODO: Implement full 3-3 and 4-4 detection.
 
+
+// TODO: 实现完整的三三和四四禁手检测。
+
+// 提前存好3的基数
+static const int base[15] = {1, 3, 9, 27, 81, 243, 729, 2187, 6561, 19683, 59049, 177147, 531441, 1594323, 4782969};
+
+// 递归，提前声明
+int isForbidden(const GameState *game, int row, int col);
+
+// 判断是否为连起来的有效四
+static int isHuoFour(const GameState *game, int i, int j, int dx, int dy) {
+    int num;
+    int now_i, now_j;
+    int l_edge = 1;
+    int r_edge = 1;
+
+    // 正向算连珠数目
+    for (now_i = i, now_j = j, num = 0; 
+         isValidPos(now_i, now_j) && game->board[now_i][now_j] == BLACK; 
+         now_i += dx, now_j += dy, num++);    
+
+    if (!isValidPos(now_i, now_j) || game->board[now_i][now_j] == WHITE) {
+        l_edge = 0; 
+    }
+
+    // 反向算连珠数目
+    for (now_i = i - dx, now_j = j - dy; 
+         isValidPos(now_i, now_j) && game->board[now_i][now_j] == BLACK; 
+         now_i -= dx, now_j -= dy, num++);    
+
+    if (!isValidPos(now_i, now_j) || game->board[now_i][now_j] == WHITE) {
+        r_edge = 0; 
+    }
+
+    if (num != 4 || (!l_edge && !r_edge)) 
+        return 0;
+
+    if ((r_edge) || (l_edge)) 
+        return 1;
+    else 
+        return 0;
+}
+
+// 判断是否为跳跃型的三种冲四
+static int isChongFour(const GameState *game, int i, int j, int dx, int dy) {
+    int value, key_i, key_j, now_i, now_j, search_i, search_j;
+    int num = 0;
+    int index1, index2;
+    index2 = 0;
+
+    for (now_i = i, now_j = j; index2 < 5 && isValidPos(now_i, now_j); 
+         now_i -= dx, now_j -= dy, index2++) { 
+        value = 0;
+        search_i = now_i;
+        search_j = now_j;
+        for (index1 = 0; index1 < 5 && isValidPos(search_i, search_j); 
+             index1++, search_i += dx, search_j += dy) {
+            if (game->board[search_i][search_j] == WHITE) 
+                break;
+            else if (game->board[search_i][search_j] == BLACK)
+                value += 1 * base[index1];
+            else // 空位
+                value += 0;
+        } 
+        if (index1 == 5) {
+            if (value == PATTERN_CHONG_FOUR_1) {
+                key_i = now_i + 2*dx;
+                key_j = now_j + 2*dy;
+                num++;   
+            } else if (value == PATTERN_CHONG_FOUR_2) {
+                key_i = now_i + 3*dx;
+                key_j = now_j + 3*dy;
+                num++;
+            } else if (value == PATTERN_CHONG_FOUR_3) {
+                key_i = now_i + 1*dx;
+                key_j = now_j + 1*dy;
+                num++;
+            }
+        }
+    }
+    return num;
+}
+
+// 判断是否为活三
+static int isHuoThree(const GameState *game, int i, int j, int dx, int dy) {
+    int value, key_i, key_j, now_i, now_j, end_i, end_j, search_i, search_j;
+    int index1;     
+    int index2 = 0; 
+
+    for (now_i = i - dx, now_j = j - dy; index2 < 4 && isValidPos(now_i, now_j); 
+         now_i -= dx, now_j -= dy, index2++) {
+        value = 0;
+        search_i = now_i - dx;
+        search_j = now_j - dy;
+        // 检查左侧是否被黑子堵住（否则会变成长连）
+        if (isValidPos(search_i, search_j) && game->board[search_i][search_j] == BLACK) 
+            continue; 
+
+        search_i = now_i;
+        search_j = now_j;
+        for (index1 = 0; index1 < 6 && isValidPos(search_i, search_j); 
+             index1++, search_i += dx, search_j += dy) {
+            if (game->board[search_i][search_j] == WHITE) 
+                break;
+            else if (game->board[search_i][search_j] == BLACK)
+                value += 1 * base[index1];
+            else
+                value += 0;
+        } 
+
+        end_i = now_i + index1*dx;
+        end_j = now_j + index1*dy;
+
+        if(index1 < 6) continue;
+        // 检查右侧是否被黑子堵住
+        else if(!isValidPos(end_i, end_j) || game->board[end_i][end_j] != BLACK) {
+            switch (value) {
+                case PATTERN_HUO_THREE_1:
+                    key_i = now_i + dx*1;  
+                    key_j = now_j + dy*1;  
+                    if (!isForbidden(game, key_i, key_j)) 
+                        return 1;  
+                    break;
+                case PATTERN_HUO_THREE_2:
+                    key_i = now_i + dx*4;  
+                    key_j = now_j + dy*4;  
+                    if (!isForbidden(game, key_i, key_j)) 
+                        return 1;
+                    break;
+                case PATTERN_HUO_THREE_3:
+                    key_i = now_i + dx*2;  
+                    key_j = now_j + dy*2;  
+                    if (!isForbidden(game, key_i, key_j)) 
+                        return 1;
+                    break;
+                case PATTERN_HUO_THREE_4:
+                    key_i = now_i + dx*3;  
+                    key_j = now_j + dy*3;  
+                    if (!isForbidden(game, key_i, key_j)) 
+                        return 1; 
+                    break;
+            }
+        } 
+    }
+    return 0;
+}
+
+// 判断是否为长连
 static int isOverline(const GameState *game, int r, int c) {
     for (int i = 0; i < 4; i++) {
         if (countLine(game, r, c, i, PLAYER_BLACK) > 5) return 1;
@@ -71,38 +215,43 @@ static int isOverline(const GameState *game, int r, int c) {
     return 0;
 }
 
+// 禁手检测（仅标准规则下黑方需要）
 int isForbidden(const GameState *game, int row, int col) {
     if (game->ruleType != RULE_STANDARD) return 0;
-    // Only Black has forbidden moves
-    if (game->currentPlayer != PLAYER_BLACK) return 0;
+    // 只有黑方有禁手
+    // isHuoThree 递归调用时是检测潜在落子是否为禁手。
+    // currentPlayer 检查在模拟时可能有陷阱。
+    // 但 isForbidden 只会用于黑方落子。
 
-    // Temporarily place the stone to check patterns
-    // Note: game is const, so we can't modify it. 
-    // We need to simulate. But countLine takes game.
-    // We can cast away const or pass a modified board.
-    // Let's cast away const for a moment or use a local copy? 
-    // Local copy of board is big.
-    // Better: modify countLine to accept a "virtual" stone.
-    // Or just cast away const, modify, check, restore.
-    
     GameState *mutableGame = (GameState *)game;
     CellState original = mutableGame->board[row][col];
     mutableGame->board[row][col] = BLACK;
 
     int forbidden = 0;
 
-    // 1. Overline
+    // 1. 长连
     if (isOverline(mutableGame, row, col)) {
         forbidden = ERR_FORBIDDEN_OVERLINE;
+    } else {
+        int num_four = 0;
+        int num_three = 0;
+
+        // 检查四个方向
+        for (int i = 0; i < 4; i++) {
+            if (isHuoFour(mutableGame, row, col, dr[i], dc[i])) num_four++;
+            num_four += isChongFour(mutableGame, row, col, dr[i], dc[i]);
+            num_three += isHuoThree(mutableGame, row, col, dr[i], dc[i]);
+        }
+
+        if (num_four >= 2) forbidden = ERR_FORBIDDEN_44;
+        else if (num_three >= 2) forbidden = ERR_FORBIDDEN_33;
     }
     
-    // 2. 3-3 and 4-4 (Placeholder)
-    // Real implementation requires checking open ends.
-    
-    mutableGame->board[row][col] = original; // Restore
+    mutableGame->board[row][col] = original; // 恢复原状态
     return forbidden;
 }
 
+// 检查落子是否合法
 int checkValidMove(const GameState *game, int row, int col) {
     if (!isValidPos(row, col)) return ERR_OUT_OF_BOUNDS;
     if (game->board[row][col] != EMPTY) return ERR_OCCUPIED;
