@@ -13,6 +13,7 @@ void printHelp() {
     printf("Options:\n");
     printf("  --mode <pvp|pve>      Set game mode (default: pvp)\n");
     printf("  --rules <std|simple>  Set rules (default: std)\n");
+    printf("  --debug renju         Enable Renju debug mode (Black only, type 'white' to switch)\n");
 }
 
 //LLM写的调库实现stdin
@@ -56,6 +57,8 @@ int parseCoord(const char *str, int *row, int *col) {
 int main(int argc, char *argv[]) {
     GameMode mode = MODE_PVP;//默认PvP
     RuleType rule = RULE_STANDARD;//默认标准禁手
+    int debugRenju = 0;
+    int forceWhite = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
@@ -65,6 +68,12 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--rules") == 0 && i + 1 < argc) {
             if (strcmp(argv[i+1], "simple") == 0) rule = RULE_NO_FORBIDDEN;
             else if (strcmp(argv[i+1], "std") == 0) rule = RULE_STANDARD;
+            i++;
+        } else if (strcmp(argv[i], "--debug") == 0 && i + 1 < argc) {
+            if (strcmp(argv[i+1], "renju") == 0) {
+                debugRenju = 1;
+                mode = MODE_PVP; // Debug mode implies PvP logic
+            }
             i++;
         } else if (strcmp(argv[i], "--help") == 0) {
             printHelp();
@@ -93,7 +102,11 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Game Started!\n");
-    printf("Mode: %s, Rules: %s\n", mode == MODE_PVP ? "PvP" : "PvE", rule == RULE_STANDARD ? "Standard" : "Simple");
+    if (debugRenju) {
+        printf("Debug Mode: Renju (Black only). Type 'white' to switch to White for one move.\n");
+    } else {
+        printf("Mode: %s, Rules: %s\n", mode == MODE_PVP ? "PvP" : "PvE", rule == RULE_STANDARD ? "Standard" : "Simple");
+    }
     printf("Enter moves as 'H8' or '8H', 'undo' to undo, 'quit' to exit.\n");
 
     char input[64];
@@ -132,6 +145,11 @@ int main(int argc, char *argv[]) {
         if (strcmp(input, "quit") == 0) {
             running = 0;
             break;
+        } else if (strcmp(input, "white") == 0 && debugRenju) {
+            game.currentPlayer = PLAYER_WHITE;
+            forceWhite = 1;
+            printf("Next move set to White.\n");
+            continue;
         } else if (strcmp(input, "undo") == 0) {
             if (undoMove(&game)) {
                 printf("Undo successful.\n");
@@ -150,6 +168,15 @@ int main(int argc, char *argv[]) {
             int result = makeMove(&game, r, c);
             if (result == VALID_MOVE) {
                 // Move accepted
+                if (debugRenju) {
+                    if (forceWhite) {
+                        forceWhite = 0;
+                        // White moved, now it's Black's turn (handled by makeMove)
+                    } else {
+                        // Black moved, force turn back to Black
+                        game.currentPlayer = PLAYER_BLACK;
+                    }
+                }
             } else {
                 printf("Invalid move: ");
                 switch (result) {

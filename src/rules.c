@@ -63,11 +63,22 @@ int checkWin(const GameState *game) {
 
 // TODO: 实现完整的三三和四四禁手检测。
 
-// 提前存好3的基数
-static const int base[15] = {1, 3, 9, 27, 81, 243, 729, 2187, 6561, 19683, 59049, 177147, 531441, 1594323, 4782969};
-
 // 递归，提前声明
 int isForbidden(const GameState *game, int row, int col);
+// 长连检测，提前声明
+static int isOverline(const GameState *game, int r, int c);
+
+// 辅助函数：检查在 (r, c) 落子是否会导致长连（用于判断端点是否被堵死）
+static int checkPotentialOverline(GameState *game, int r, int c) {
+    if (!isValidPos(r, c)) return 0;
+    // 只有空位才需要模拟，如果是白子自然是堵死的（调用者已处理），如果是黑子则连成一体
+    if (game->board[r][c] != EMPTY) return 0;
+    
+    game->board[r][c] = BLACK;
+    int result = isOverline(game, r, c);
+    game->board[r][c] = EMPTY;
+    return result;
+}
 
 // 判断是否为连起来的有效四
 static int isHuoFour(const GameState *game, int i, int j, int dx, int dy) {
@@ -75,6 +86,7 @@ static int isHuoFour(const GameState *game, int i, int j, int dx, int dy) {
     int now_i, now_j;
     int l_edge = 1;
     int r_edge = 1;
+    GameState *mutableGame = (GameState *)game;
 
     // 正向算连珠数目
     for (now_i = i, now_j = j, num = 0; 
@@ -83,6 +95,9 @@ static int isHuoFour(const GameState *game, int i, int j, int dx, int dy) {
 
     if (!isValidPos(now_i, now_j) || game->board[now_i][now_j] == WHITE) {
         l_edge = 0; 
+    } else {
+        // 检查该端点落子是否会导致长连
+        if (checkPotentialOverline(mutableGame, now_i, now_j)) l_edge = 0;
     }
 
     // 反向算连珠数目
@@ -92,6 +107,9 @@ static int isHuoFour(const GameState *game, int i, int j, int dx, int dy) {
 
     if (!isValidPos(now_i, now_j) || game->board[now_i][now_j] == WHITE) {
         r_edge = 0; 
+    } else {
+        // 检查该端点落子是否会导致长连
+        if (checkPotentialOverline(mutableGame, now_i, now_j)) r_edge = 0;
     }
 
     if (num != 4 || (!l_edge && !r_edge)) 
@@ -109,6 +127,7 @@ static int isChongFour(const GameState *game, int i, int j, int dx, int dy) {
     int num = 0;
     int index1, index2;
     index2 = 0;
+    GameState *mutableGame = (GameState *)game;
 
     for (now_i = i, now_j = j; index2 < 5 && isValidPos(now_i, now_j); 
          now_i -= dx, now_j -= dy, index2++) { 
@@ -120,23 +139,27 @@ static int isChongFour(const GameState *game, int i, int j, int dx, int dy) {
             if (game->board[search_i][search_j] == WHITE) 
                 break;
             else if (game->board[search_i][search_j] == BLACK)
-                value += 1 * base[index1];
-            else // 空位
-                value += 0;
+                value |= (1 << index1);
+            // 空位不操作
         } 
         if (index1 == 5) {
+            key_i = -1; // Init invalid
             if (value == PATTERN_CHONG_FOUR_1) {
                 key_i = now_i + 2*dx;
                 key_j = now_j + 2*dy;
-                num++;   
             } else if (value == PATTERN_CHONG_FOUR_2) {
-                key_i = now_i + 3*dx;
-                key_j = now_j + 3*dy;
-                num++;
-            } else if (value == PATTERN_CHONG_FOUR_3) {
                 key_i = now_i + 1*dx;
                 key_j = now_j + 1*dy;
-                num++;
+            } else if (value == PATTERN_CHONG_FOUR_3) {
+                key_i = now_i + 3*dx;
+                key_j = now_j + 3*dy;
+            }
+
+            if (key_i != -1) {
+                // 检查关键点落子是否会导致长连
+                if (!checkPotentialOverline(mutableGame, key_i, key_j)) {
+                    num++;
+                }
             }
         }
     }
@@ -165,9 +188,8 @@ static int isHuoThree(const GameState *game, int i, int j, int dx, int dy) {
             if (game->board[search_i][search_j] == WHITE) 
                 break;
             else if (game->board[search_i][search_j] == BLACK)
-                value += 1 * base[index1];
-            else
-                value += 0;
+                value |= (1 << index1);
+            // 空位不操作
         } 
 
         end_i = now_i + index1*dx;
@@ -178,14 +200,14 @@ static int isHuoThree(const GameState *game, int i, int j, int dx, int dy) {
         else if(!isValidPos(end_i, end_j) || game->board[end_i][end_j] != BLACK) {
             switch (value) {
                 case PATTERN_HUO_THREE_1:
-                    key_i = now_i + dx*1;  
-                    key_j = now_j + dy*1;  
+                    key_i = now_i + dx*4;  
+                    key_j = now_j + dy*4;  
                     if (!isForbidden(game, key_i, key_j)) 
                         return 1;  
                     break;
                 case PATTERN_HUO_THREE_2:
-                    key_i = now_i + dx*4;  
-                    key_j = now_j + dy*4;  
+                    key_i = now_i + dx*1;  
+                    key_j = now_j + dy*1;  
                     if (!isForbidden(game, key_i, key_j)) 
                         return 1;
                     break;
@@ -240,11 +262,17 @@ int isForbidden(const GameState *game, int row, int col) {
         for (int i = 0; i < 4; i++) {
             if (isHuoFour(mutableGame, row, col, dr[i], dc[i])) num_four++;
             num_four += isChongFour(mutableGame, row, col, dr[i], dc[i]);
-            num_three += isHuoThree(mutableGame, row, col, dr[i], dc[i]);
         }
-
-        if (num_four >= 2) forbidden = ERR_FORBIDDEN_44;
-        else if (num_three >= 2) forbidden = ERR_FORBIDDEN_33;
+        
+        // 剪枝：如果已经是四四禁手，就不需要再算三三了
+        if (num_four >= 2) {
+            forbidden = ERR_FORBIDDEN_44;
+        } else {
+            for (int i = 0; i < 4; i++) {
+                num_three += isHuoThree(mutableGame, row, col, dr[i], dc[i]);
+            }
+            if (num_three >= 2) forbidden = ERR_FORBIDDEN_33;
+        }
     }
     
     mutableGame->board[row][col] = original; // 恢复原状态
