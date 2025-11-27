@@ -1,0 +1,14 @@
+# Build artifacts
+build/
+*.o
+*.exe
+*.dSYM/
+
+# macOS system files
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Executables (if built in root)
+gomoku

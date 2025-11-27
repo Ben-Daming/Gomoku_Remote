@@ -15,6 +15,7 @@ void printHelp() {
     printf("  --rules <std|simple>  Set rules (default: std)\n");
 }
 
+//LLM调库实现stdin
 int parseCoord(const char *str, int *row, int *col) {
     if (!str) return 0;
     int len = strlen(str);
@@ -23,7 +24,7 @@ int parseCoord(const char *str, int *row, int *col) {
     char colChar = 0;
     char rowStr[3] = {0};
     int rowVal = 0;
-
+    // support input: A15 or 15A
     if (isalpha(str[0])) {
         colChar = toupper(str[0]);
         if (isdigit(str[1])) {
@@ -31,13 +32,11 @@ int parseCoord(const char *str, int *row, int *col) {
             if (len == 3 && isdigit(str[2])) rowStr[1] = str[2];
         } else return 0;
     } else if (isdigit(str[0])) {
-        // 15A format?
-        // Let's support A15 or 15A
         if (isdigit(str[1])) {
-             rowStr[0] = str[0];
-             rowStr[1] = str[1];
-             if (len == 3 && isalpha(str[2])) colChar = toupper(str[2]);
-             else return 0;
+            rowStr[0] = str[0];
+            rowStr[1] = str[1];
+            if (len == 3 && isalpha(str[2])) colChar = toupper(str[2]);
+            else return 0;
         } else {
             rowStr[0] = str[0];
             if (isalpha(str[1])) colChar = toupper(str[1]);
@@ -55,8 +54,8 @@ int parseCoord(const char *str, int *row, int *col) {
 }
 
 int main(int argc, char *argv[]) {
-    GameMode mode = MODE_PVP;
-    RuleType rule = RULE_STANDARD;
+    GameMode mode = MODE_PVP;//默认PvP
+    RuleType rule = RULE_STANDARD;//默认标准禁手
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
@@ -76,15 +75,31 @@ int main(int argc, char *argv[]) {
     GameState game;
     initGame(&game, mode, rule);
 
-    printf("Gomoku Game Started!\n");
-    printf("Mode: %s, Rules: %s\n", mode == MODE_PVP ? "PvP" : "PvE", rule == RULE_STANDARD ? "Standard (Renju-like)" : "Simple");
-    printf("Enter moves as 'H8', 'undo' to undo, 'quit' to exit.\n");
+    Player aiPlayer = PLAYER_WHITE; // Default AI is White (Human is Black)
+
+    if (mode == MODE_PVE) {
+        printf("You selected PvE mode.\n");
+        printf("Choose your color (1: Black, 2: White): ");
+        char buf[16];
+        if (fgets(buf, sizeof(buf), stdin)) {
+            int choice = atoi(buf);
+            if (choice == 2) {
+                aiPlayer = PLAYER_BLACK;
+                printf("You are White. AI is Black (First).\n");
+            } else {
+                printf("You are Black (First). AI is White.\n");
+            }
+        }
+    }
+
+    printf("Game Started!\n");
+    printf("Mode: %s, Rules: %s\n", mode == MODE_PVP ? "PvP" : "PvE", rule == RULE_STANDARD ? "Standard" : "Simple");
+    printf("Enter moves as 'H8' or '8H', 'undo' to undo, 'quit' to exit.\n");
 
     char input[64];
     int running = 1;
 
     while (running) {
-        printBoard(&game);
         
         int winner = checkWin(&game);
         if (winner) {
@@ -96,22 +111,23 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-        if (mode == MODE_PVE && game.currentPlayer == PLAYER_WHITE) {
+        if (mode == MODE_PVE && game.currentPlayer == aiPlayer) {
             // AI Turn
             printf("AI is thinking...\n");
             Position aiMove = getAIMove(&game);
-            if (aiMove.row == -1) {
-                printf("AI cannot move! Draw?\n");
+            if (aiMove.row == -1 || aiMove.col == -1) {
+                printf("AI cannot move!\n");
                 break;
             }
             makeMove(&game, aiMove.row, aiMove.col);
+            printBoard(&game);
             continue;
         }
 
         printf("Player %s's turn > ", game.currentPlayer == PLAYER_BLACK ? "Black" : "White");
         if (!fgets(input, sizeof(input), stdin)) break;
         
-        // Trim newline
+        // 替换掉\n
         input[strcspn(input, "\n")] = 0;
 
         if (strcmp(input, "quit") == 0) {
@@ -120,7 +136,7 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(input, "undo") == 0) {
             if (undoMove(&game)) {
                 printf("Undo successful.\n");
-                // If PvE, undo twice to get back to human turn
+                // PvE就悔棋两次以回到玩家执棋
                 if (mode == MODE_PVE) {
                     undoMove(&game);
                 }
@@ -147,7 +163,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         } else {
-            printf("Invalid input format. Use 'H8' etc.\n");
+            printf("Invalid input format. Use 'H8' or '8H'.\n");
         }
     }
 
