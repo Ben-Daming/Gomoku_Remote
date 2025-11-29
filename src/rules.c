@@ -237,12 +237,11 @@ static int isOverline(const GameState *game, int r, int c) {
     return 0;
 }
 
-// 禁手检测（仅标准规则下黑方需要）
+// 禁手检测
 int isForbidden(const GameState *game, int row, int col) {
     if (game->ruleType != RULE_STANDARD) return 0;
     // 只有黑方有禁手
     // isHuoThree 递归调用时是检测潜在落子是否为禁手。
-    // currentPlayer 检查在模拟时可能有陷阱。
     // 但 isForbidden 只会用于黑方落子。
 
     GameState *mutableGame = (GameState *)game;

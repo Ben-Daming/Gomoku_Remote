@@ -5,15 +5,16 @@
 //当前状态进栈
 void pushState(GameState *game) {
     HistoryNode *node = (HistoryNode *)malloc(sizeof(HistoryNode));
-    if (!node) return; // Allocation failed
+    if (!node) return; 
 
-    // Copy state
+    // Copy
     memcpy(node->board, game->board, sizeof(game->board));
+    node->bitBoard = game->bitBoard; 
     node->currentPlayer = game->currentPlayer;
     node->lastMove = game->lastMove;
     node->moveCount = game->moveCount;
     
-    // Push to stack
+    // Push
     node->next = game->historyHead;
     game->historyHead = node;
 }
@@ -21,7 +22,7 @@ void pushState(GameState *game) {
 //悔棋出栈
 int undoMove(GameState *game) {
     if (!game->historyHead) {
-        return 0; // Empty stack
+        return 0; // Empty
     }
 
     HistoryNode *node = game->historyHead;
@@ -29,6 +30,7 @@ int undoMove(GameState *game) {
 
     // Restore state
     memcpy(game->board, node->board, sizeof(node->board));
+    game->bitBoard = node->bitBoard;
     game->currentPlayer = node->currentPlayer;
     game->lastMove = node->lastMove;
     game->moveCount = node->moveCount;

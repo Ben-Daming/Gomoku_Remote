@@ -20,7 +20,7 @@ typedef enum {
 } GameMode;
 
 typedef enum {
-    RULE_STANDARD, // Standard Gomoku with forbidden moves for Black
+    RULE_STANDARD, // Standard Renju
     RULE_NO_FORBIDDEN // Free style
 } RuleType;
 
@@ -29,11 +29,20 @@ typedef struct {
     int col;
 } Position;
 
-// Forward declaration
+typedef unsigned short Line;
+
+typedef struct {
+    Line black[BOARD_SIZE];      // 1 = 黑子, 0 = 非黑子
+    Line white[BOARD_SIZE];      // 1 = 白子, 0 = 非白子
+    Line occupy[BOARD_SIZE];     // 0 = 已被占据(黑或白), 1 = 空
+    Line move_mask[BOARD_SIZE];  // 1 = 有效落子点(邻域), 0 = 无效
+} BitBoardState;
+
 struct HistoryNode;
 
 typedef struct {
     CellState board[BOARD_SIZE][BOARD_SIZE];
+    BitBoardState bitBoard; 
     Player currentPlayer;
     Position lastMove;
     int moveCount;
@@ -44,6 +53,7 @@ typedef struct {
 
 typedef struct HistoryNode {
     CellState board[BOARD_SIZE][BOARD_SIZE];
+    BitBoardState bitBoard; 
     Player currentPlayer;
     Position lastMove;
     int moveCount;

@@ -2,6 +2,8 @@
 #include "../include/board.h"
 #include "../include/rules.h"
 #include "../include/history.h"
+#include "../include/bitboard.h"
+
 //初始化棋盘
 void initGame(GameState *game, GameMode mode, RuleType rule) {
     for (int i = 0; i < BOARD_SIZE; i++) {
@@ -9,6 +11,7 @@ void initGame(GameState *game, GameMode mode, RuleType rule) {
             game->board[i][j] = EMPTY;
         }
     }
+    initBitBoard(&game->bitBoard); 
     game->currentPlayer = PLAYER_BLACK;
     game->moveCount = 0;
     game->mode = mode;
@@ -20,7 +23,6 @@ void initGame(GameState *game, GameMode mode, RuleType rule) {
 
 //打印棋盘
 void printBoard(const GameState *game) {
-    // Display the last move
     // 显示上一步的落子位置
     if (game->moveCount > 0) {
         printf("last move was: %c%d\n", (char)game->lastMove.col + 'A', BOARD_SIZE - game->lastMove.row);
@@ -79,18 +81,20 @@ void printBoard(const GameState *game) {
 int makeMove(GameState *game, int row, int col) {
     int valid = checkValidMove(game, row, col);
     if (valid != VALID_MOVE) {
-        return valid; // Return error code
+        return valid; 
     }
 
-    // Push state to history before modifying
     pushState(game);
 
     game->board[row][col] = (game->currentPlayer == PLAYER_BLACK) ? BLACK : WHITE;
+    
+    Line backup_mask[BOARD_SIZE]; // Buffer for BitBoard
+    updateBitBoard(&game->bitBoard, row, col, game->currentPlayer, backup_mask); 
+
     game->lastMove.row = row;
     game->lastMove.col = col;
     game->moveCount++;
     
-    // Switch player
     game->currentPlayer = (game->currentPlayer == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK;
 
     return VALID_MOVE;
