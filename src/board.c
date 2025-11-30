@@ -4,6 +4,8 @@
 #include "../include/history.h"
 #include "../include/bitboard.h"
 
+#include "../include/evaluate.h"
+
 //初始化棋盘
 void initGame(GameState *game, GameMode mode, RuleType rule) {
     for (int i = 0; i < BOARD_SIZE; i++) {
@@ -76,6 +78,53 @@ void printBoard(const GameState *game) {
     for (int i = 0; i < BOARD_SIZE; i++)
         printf(" %c", 'A' + i);
     printf("\n");
+    //调试日志
+    // printf("\n--- BitBoard Debug Info (Cols) ---\n");
+    // printf("Row | Black           | White           | Occupy          | Move Mask\n");
+    // printf("----|-----------------|-----------------|-----------------|-----------------\n");
+    // for (int i = 0; i < BOARD_SIZE; i++) {
+    //     printf("%2d  | ", i);
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.black.cols[i] >> j) & 1);
+    //     printf(" | ");
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.white.cols[i] >> j) & 1);
+    //     printf(" | ");
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.occupy[i] >> j) & 1);
+    //     printf(" | ");
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.move_mask[i] >> j) & 1);
+    //     printf("\n");
+    // }
+
+    // printf("\n--- Rows (Horizontal) ---\n");
+    // printf("Idx | Black           | White\n");
+    // for (int i = 0; i < BOARD_SIZE; i++) {
+    //     printf("%2d  | ", i);
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.black.rows[i] >> j) & 1);
+    //     printf(" | ");
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.white.rows[i] >> j) & 1);
+    //     printf("\n");
+    // }
+
+    // printf("\n--- Diag1 (Main \\) ---\n");
+    // printf("Idx | Black           | White\n");
+    // for (int i = 0; i < BOARD_SIZE * 2; i++) {
+    //     printf("%2d  | ", i);
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.black.diag1[i] >> j) & 1);
+    //     printf(" | ");
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.white.diag1[i] >> j) & 1);
+    //     printf("\n");
+    // }
+
+    // printf("\n--- Diag2 (Anti /) ---\n");
+    // printf("Idx | Black           | White\n");
+    // for (int i = 0; i < BOARD_SIZE * 2; i++) {
+    //     printf("%2d  | ", i);
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.black.diag2[i] >> j) & 1);
+    //     printf(" | ");
+    //     for (int j = 0; j < BOARD_SIZE; j++) printf("%d", (game->bitBoard.white.diag2[i] >> j) & 1);
+    //     printf("\n");
+    // }
+
+    printf("The Point is: %d\n", evaluate(&(game->bitBoard)));
 }
 
 int makeMove(GameState *game, int row, int col) {

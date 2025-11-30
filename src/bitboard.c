@@ -3,7 +3,7 @@
 
 // Helper macro for absolute value
 #define ABS(x) ((x) < 0 ? -(x) : (x))
-
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
 // Helper macro for bit set (Standard Bit Order: Row 0 = Bit 0)
 // Returns a mask with the 'row'-th bit set to 0, others to 1.
 #define BIT_SET(row) (~(1 << (row)))
@@ -65,8 +65,8 @@ const Line bit_move_set[BOARD_SIZE][3] = {
 
 void initBitBoard(BitBoardState *bitBoard) {
     // 1. Initialize Black/White/MoveMask to 0
-    memset(bitBoard->black, 0, sizeof(bitBoard->black));
-    memset(bitBoard->white, 0, sizeof(bitBoard->white));
+    memset(&bitBoard->black, 0, sizeof(bitBoard->black));
+    memset(&bitBoard->white, 0, sizeof(bitBoard->white));
     memset(bitBoard->move_mask, 0, sizeof(bitBoard->move_mask));
 
     // 2. Initialize Occupy to ~0 (All 1s = All Empty)
@@ -83,14 +83,20 @@ void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Li
     // 1. Fast Backup of move_mask
     memcpy(backup_mask, bitBoard->move_mask, sizeof(Line) * BOARD_SIZE);
 
-    Line pos_mask = (1 << row);
-
-    // 2. Update Color Layer
-    if (player == PLAYER_BLACK) {
-        bitBoard->black[col] |= pos_mask;
-    } else {
-        bitBoard->white[col] |= pos_mask;
-    }
+    // 2. Update Color Layers (4 Directions)
+    PlayerBitBoard *pBoard = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;
+    
+    // Vertical: Index col, Bit row
+    pBoard->cols[col] |= (1 << row);
+    
+    // Horizontal: Index row, Bit col
+    pBoard->rows[row] |= (1 << col);
+    
+    // Main Diagonal: Index row - col + 14, Bit col
+    pBoard->diag1[row - col + 14] |= (1 << MIN(row, col));
+    
+    // Anti Diagonal: Index row + col, Bit row
+    pBoard->diag2[row + col] |= (1 << MIN(row, 14 - col));
 
     // 3. Update Occupy Layer (1=Empty, 0=Occupied)
     bitBoard->occupy[col] &= BIT_SET(row);
@@ -109,14 +115,13 @@ void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Li
 }
 
 void undoBitBoard(BitBoardState *bitBoard, int row, int col, Player player, const Line* backup_mask) {
-    Line pos_mask = (1 << row);
-
-    // 1. Restore Color Layer
-    if (player == PLAYER_BLACK) {
-        bitBoard->black[col] &= ~pos_mask;
-    } else {
-        bitBoard->white[col] &= ~pos_mask;
-    }
+    // 1. Restore Color Layers (4 Directions)
+    PlayerBitBoard *pBoard = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;
+    
+    pBoard->cols[col] &= ~(1 << row);
+    pBoard->rows[row] &= ~(1 << col);
+    pBoard->diag1[row - col + 14] &= ~(1 << MIN(row, col));
+    pBoard->diag2[row + col] &= ~(1 << MIN(row, 14 - col));
 
     // 2. Restore Occupy Layer (Set back to 1)
     bitBoard->occupy[col] |= ~BIT_SET(row);

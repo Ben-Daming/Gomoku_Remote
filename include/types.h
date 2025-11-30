@@ -31,9 +31,17 @@ typedef struct {
 
 typedef unsigned short Line;
 
+// Structure to hold bitboards for different directions for a single player
 typedef struct {
-    Line black[BOARD_SIZE];      // 1 = 黑子, 0 = 非黑子
-    Line white[BOARD_SIZE];      // 1 = 白子, 0 = 非白子
+    Line cols[BOARD_SIZE];          // Vertical (Index: col, Bit: row)
+    Line rows[BOARD_SIZE];          // Horizontal (Index: row, Bit: col)
+    Line diag1[BOARD_SIZE * 2];     // Main Diagonal (Index: row - col + 14, Bit: col)
+    Line diag2[BOARD_SIZE * 2];     // Anti Diagonal (Index: row + col, Bit: row)
+} PlayerBitBoard;
+
+typedef struct {
+    PlayerBitBoard black;
+    PlayerBitBoard white;
     Line occupy[BOARD_SIZE];     // 0 = 已被占据(黑或白), 1 = 空
     Line move_mask[BOARD_SIZE];  // 1 = 有效落子点(邻域), 0 = 无效
 } BitBoardState;
