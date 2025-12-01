@@ -45,8 +45,8 @@ typedef struct {
 
 // --- Search Context ---
 #define MAX_DEPTH 20
-#define SEARCH_DEPTH 8
-#define BEAM_WIDTH 15
+#define SEARCH_DEPTH 10
+#define BEAM_WIDTH 11
 
 typedef struct {
     int thread_id;
