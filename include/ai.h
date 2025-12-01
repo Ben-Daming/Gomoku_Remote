@@ -7,29 +7,6 @@
 
 #define MAX_LINES 30 // Max diagonals is 29
 
-// --- Transposition Table Definitions ---
-
-#define TT_FLAG_EXACT 0
-#define TT_FLAG_LOWERBOUND 1 // Alpha (Fail Low)
-#define TT_FLAG_UPPERBOUND 2 // Beta (Fail High)
-
-typedef struct {
-    uint64_t key;       // Zobrist Hash
-    int depth;          // Search depth
-    int value;          // Score
-    int flag;           // TT_FLAG_*
-    Position bestMove;  // Best move for this position
-} TTEntry;
-
-// TT API
-void initTT(int size_mb);
-void freeTT();
-void clearTT();
-// Returns 1 if found and usable (score updated), 0 otherwise. 
-// Always updates bestMove if found (even if depth is insufficient).
-int probeTT(uint64_t key, int depth, int alpha, int beta, int* score, Position* bestMove);
-void saveTT(uint64_t key, int depth, int value, int flag, Position bestMove);
-
 typedef struct {
     // Cache net scores for 4 directions (Black Score - White Score)
     // [0]: Col, [1]: Row, [2]: Diag1, [3]: Diag2

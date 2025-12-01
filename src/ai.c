@@ -13,83 +13,6 @@
 #define DIR_DIAG1 2
 #define DIR_DIAG2 3
 
-// --- Transposition Table Implementation ---
-
-static TTEntry* tt_table = NULL;
-static int tt_size = 0; // Number of entries
-
-void initTT(int size_mb) {
-    if (tt_table) free(tt_table);
-    
-    // Calculate number of entries
-    // Ensure size is power of 2 for fast indexing (optional but good practice)
-    // For now, just simple division
-    tt_size = (size_mb * 1024 * 1024) / sizeof(TTEntry);
-    tt_table = (TTEntry*)calloc(tt_size, sizeof(TTEntry));
-}
-
-void freeTT() {
-    if (tt_table) {
-        free(tt_table);
-        tt_table = NULL;
-    }
-}
-
-void clearTT() {
-    if (tt_table) {
-        memset(tt_table, 0, tt_size * sizeof(TTEntry));
-    }
-}
-
-int probeTT(uint64_t key, int depth, int alpha, int beta, int* score, Position* bestMove) {
-    if (!tt_table) return 0;
-    int index = key % tt_size;
-    TTEntry* entry = &tt_table[index];
-
-    if (entry->key == key) {
-        // Always retrieve the best move for ordering, regardless of depth
-        if (entry->bestMove.row != -1) {
-            *bestMove = entry->bestMove;
-        }
-
-        // Only return score if depth is sufficient
-        if (entry->depth >= depth) {
-            if (entry->flag == TT_FLAG_EXACT) {
-                *score = entry->value;
-                return 1;
-            }
-            if (entry->flag == TT_FLAG_LOWERBOUND && entry->value >= beta) {
-                *score = entry->value;
-                return 1;
-            }
-            if (entry->flag == TT_FLAG_UPPERBOUND && entry->value <= alpha) {
-                *score = entry->value;
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
-void saveTT(uint64_t key, int depth, int value, int flag, Position bestMove) {
-    if (!tt_table) return;
-
-    int index = key % tt_size;
-    TTEntry* entry = &tt_table[index];
-
-    // Replacement Strategy:
-    // 1. Always replace if empty (key == 0)
-    // 2. Replace if new depth is greater or equal
-    // 3. (Optional) Replace if same depth (to keep fresh)
-    if (entry->key == 0 || depth >= entry->depth) {
-        entry->key = key;
-        entry->depth = depth;
-        entry->value = value;
-        entry->flag = flag;
-        entry->bestMove = bestMove;
-    }
-}
-
 // Helper: Get length of a line
 static int getLineLength(int dir, int idx) {
     if (dir == DIR_COL || dir == DIR_ROW) return BOARD_SIZE;
@@ -209,15 +132,8 @@ static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col
     }
 }
 
-// Alpha-Beta Search with Transposition Table
+// Alpha-Beta Search (Naive)
 static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha, int beta, Player player) {
-    // 0. Transposition Table Lookup
-    int tt_score;
-    Position tt_move = {-1, -1};
-    if (probeTT(board->hash, depth, alpha, beta, &tt_score, &tt_move)) {
-        return tt_score; // Cutoff based on TT
-    }
-
     // 1. Static Evaluation
     int current_score = (player == PLAYER_BLACK) ? eval->total_score : -eval->total_score;
 
@@ -225,8 +141,6 @@ static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha
     if (current_score < -WIN_THRESHOLD) return current_score; // Loss
 
     if (depth == 0) {
-        // Save leaf node to TT (Exact value)
-        saveTT(board->hash, 0, current_score, TT_FLAG_EXACT, (Position){-1, -1});
         return current_score;
     }
 
@@ -235,22 +149,7 @@ static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha
     int count = generateMoves(board, moves);
     if (count == 0) return 0; // Draw
 
-    // 3. Move Ordering (Hash Move First)
-    if (tt_move.row != -1) {
-        // Find the hash move in the list and swap it to the front
-        for (int i = 0; i < count; i++) {
-            if (moves[i].row == tt_move.row && moves[i].col == tt_move.col) {
-                Position temp = moves[0];
-                moves[0] = moves[i];
-                moves[i] = temp;
-                break;
-            }
-        }
-    }
-
     int best_score = -INF;
-    Position best_move = {-1, -1};
-    int tt_flag = TT_FLAG_UPPERBOUND; // Default to Upper Bound (Fail Low)
 
     for (int i = 0; i < count; i++) {
         UndoInfo undo;
@@ -262,52 +161,24 @@ static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha
 
         if (score > best_score) {
             best_score = score;
-            best_move = moves[i];
             
             if (score > alpha) {
                 alpha = score;
-                tt_flag = TT_FLAG_EXACT; // Found a better move, so it's at least Exact (PV-Node)
             }
         }
         
         if (alpha >= beta) {
-            tt_flag = TT_FLAG_LOWERBOUND; // Fail High (Beta Cutoff)
             break;
         }
     }
 
-    // 4. Save to Transposition Table
-    saveTT(board->hash, depth, best_score, tt_flag, best_move);
-
     return best_score;
 }
 
-// MTD(f) Driver
-static int mtdf(BitBoardState* board, EvalState* eval, int first_guess, int depth, Player player) {
-    int g = first_guess;
-    int upper = INF;
-    int lower = -INF;
-
-    while (lower < upper) {
-        int beta = (g == lower) ? g + 1 : g;
-        
-        // Null window search: alpha = beta - 1
-        int score = alphaBeta(board, eval, depth, beta - 1, beta, player);
-        
-        if (score < beta) {
-            upper = score;
-        } else {
-            lower = score;
-        }
-        g = score;
-    }
-    return g;
-}
-
 Position getAIMove(const GameState *game) {
-    // 0. Initialize TT if not already (e.g., 64MB)
-    if (!tt_table) {
-        initTT(64); 
+    if(game->moveCount == 0) {
+        // If first move, play in center
+        return (Position){BOARD_SIZE / 2, BOARD_SIZE / 2};
     }
 
     // 1. Clone BitBoardState to avoid modifying the actual game
@@ -318,32 +189,38 @@ Position getAIMove(const GameState *game) {
     initEvalState(&boardCopy, &eval);
 
     Player me = game->currentPlayer;
-    int guess = 0;
     
-    // 3. Iterative Deepening with MTD(f)
-    // Start from depth 1 up to target depth (e.g., 6 or 8)
-    // This helps populate TT with good moves for deeper searches
-    for (int depth = 1; depth <= 6; depth++) {
-        guess = mtdf(&boardCopy, &eval, guess, depth, me);
+    // 3. Root Search (Fixed Depth)
+    // We need to replicate the loop here to find the best move, 
+    // since alphaBeta only returns score.
+    int depth = 6; // Fixed depth for naive search
+    
+    Position moves[225];
+    int count = generateMoves(&boardCopy, moves);
+    if (count == 0) return (Position){7, 7}; // Should not happen
+
+    int best_score = -INF;
+    Position best_move = moves[0];
+    int alpha = -INF;
+    int beta = INF;
+
+    for (int i = 0; i < count; i++) {
+        UndoInfo undo;
+        aiMakeMove(&boardCopy, &eval, moves[i].row, moves[i].col, me, &undo);
+
+        int score = -alphaBeta(&boardCopy, &eval, depth - 1, -beta, -alpha, (me == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+
+        aiUnmakeMove(&boardCopy, &eval, moves[i].row, moves[i].col, me, &undo);
+
+        if (score > best_score) {
+            best_score = score;
+            best_move = moves[i];
+        }
         
-        // If we found a winning line, we can stop early
-        if (guess > WIN_THRESHOLD || guess < -WIN_THRESHOLD) break;
+        if (score > alpha) {
+            alpha = score;
+        }
     }
 
-    // 4. Retrieve Best Move from TT
-    Position bestMove = {-1, -1};
-    int score;
-    // We probe with a dummy window just to get the move. 
-    // The depth check in probeTT is for score validity, but bestMove is always returned if key matches.
-    probeTT(boardCopy.hash, 0, -INF, INF, &score, &bestMove);
-    
-    // Fallback if TT failed (should not happen for root unless collision/overwrite)
-    if (bestMove.row == -1) {
-        Position moves[225];
-        int count = generateMoves(&boardCopy, moves);
-        if (count > 0) bestMove = moves[0];
-        else { bestMove.row = 7; bestMove.col = 7; }
-    }
-
-    return bestMove;
+    return best_move;
 }

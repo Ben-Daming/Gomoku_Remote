@@ -2,10 +2,6 @@
 #include <string.h> // For memset
 #include <stdlib.h> // For rand
 
-// Zobrist Table: [Player][Row][Col]
-// Player 0 is unused (EMPTY), but we map Player 1 (Black) -> 0, Player 2 (White) -> 1
-static unsigned long long zobrist_table[2][BOARD_SIZE][BOARD_SIZE];
-
 // Helper macro for absolute value
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -68,20 +64,6 @@ const Line bit_move_set[BOARD_SIZE][3] = {
 };
 // --- Public API Implementation ---
 
-void initZobrist() {
-    for (int p = 0; p < 2; p++) {
-        for (int i = 0; i < BOARD_SIZE; i++) {
-            for (int j = 0; j < BOARD_SIZE; j++) {
-                unsigned long long r1 = (unsigned long long)rand();
-                unsigned long long r2 = (unsigned long long)rand();
-                unsigned long long r3 = (unsigned long long)rand();
-                unsigned long long r4 = (unsigned long long)rand();
-                zobrist_table[p][i][j] = r1 | (r2 << 16) | (r3 << 32) | (r4 << 48);
-            }
-        }
-    }
-}
-
 void initBitBoard(BitBoardState *bitBoard) {
     // 1. Initialize Black/White/MoveMask to 0
     memset(&bitBoard->black, 0, sizeof(bitBoard->black));
@@ -92,9 +74,6 @@ void initBitBoard(BitBoardState *bitBoard) {
     for (int i = 0; i < BOARD_SIZE; i++) {
         bitBoard->occupy[i] = (Line)~0;
     }
-
-    // 3. Initialize Hash
-    bitBoard->hash = 0;
 }
 
 void getMoveMask(const BitBoardState *bitBoard, Line* buffer) {
@@ -105,10 +84,7 @@ void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Li
     // 1. Fast Backup of move_mask
     memcpy(backup_mask, bitBoard->move_mask, sizeof(Line) * BOARD_SIZE);
 
-    // 2. Update Hash
-    bitBoard->hash ^= zobrist_table[player - 1][row][col];
-
-    // 3. Update Color Layers (4 Directions)
+    // 2. Update Color Layers (4 Directions)
     PlayerBitBoard *pBoard = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;
     
     // Vertical: Index col, Bit row
@@ -140,10 +116,7 @@ void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Li
 }
 
 void undoBitBoard(BitBoardState *bitBoard, int row, int col, Player player, const Line* backup_mask) {
-    // 1. Restore Hash
-    bitBoard->hash ^= zobrist_table[player - 1][row][col];
-
-    // 2. Restore Color Layers (4 Directions)
+    // 1. Restore Color Layers (4 Directions)
     PlayerBitBoard *pBoard = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;
     
     pBoard->cols[col] &= ~(1 << row);
