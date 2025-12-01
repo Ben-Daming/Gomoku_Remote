@@ -5,7 +5,7 @@
 #include "bitboard.h"
 
 // Score Constants (Based on AI Migration Plan Step 2)
-#define SCORE_FIVE           100000
+#define SCORE_FIVE           10000000
 #define SCORE_LIVE_4         50000
 #define SCORE_RUSH_4         8000
 #define SCORE_LIVE_3         6000

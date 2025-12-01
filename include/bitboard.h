@@ -3,6 +3,9 @@
 
 #include "types.h"
 
+// Initialize Zobrist Table (Call once at startup)
+void initZobrist();
+
 // Initialize the BitBoard system
 void initBitBoard(BitBoardState *bitBoard);
 

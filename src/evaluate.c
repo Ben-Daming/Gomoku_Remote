@@ -76,8 +76,8 @@ int evaluateLine(Line me, Line enemy, int length) {
     Line live2 = (empty << 1) & m2 & (empty >> 2);
 
     // Rush Two (0112, 2110)
-    Line rush2_left = (empty << 1) & m2 & (enemy >> 2);
-    Line rush2_right = (enemy << 1) & m2 & (empty >> 2);
+    Line rush2_left = (~(empty << 1) & ~(me << 1)) & m2 & (empty >> 2);
+    Line rush2_right = (empty << 1) & m2 & (~(empty >> 2) & ~(me >> 2));
     Line rush2 = rush2_left | rush2_right;
 
     // Strong Live Two (001100)

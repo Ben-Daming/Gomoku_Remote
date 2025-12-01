@@ -8,6 +8,12 @@
 
 //初始化棋盘
 void initGame(GameState *game, GameMode mode, RuleType rule) {
+    static int zobrist_initialized = 0;
+    if (!zobrist_initialized) {
+        initZobrist();
+        zobrist_initialized = 1;
+    }
+
     for (int i = 0; i < BOARD_SIZE; i++) {
         for (int j = 0; j < BOARD_SIZE; j++) {
             game->board[i][j] = EMPTY;
