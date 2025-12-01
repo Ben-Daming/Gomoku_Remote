@@ -20,6 +20,20 @@ typedef struct {
     int old_line_net_scores[4]; // Restore old scores for the 4 affected lines
 } UndoInfo;
 
+// --- Search Parameters ---
+#define SEARCH_DEPTH 8
+#define BEAM_WIDTH 15
+#define MAX_DEPTH 20
+
+typedef struct {
+    Position killer_moves[MAX_DEPTH][2];
+    long nodes_searched;
+    
+    // Thread-local board & eval state
+    BitBoardState board;
+    EvalState eval;
+} SearchContext;
+
 Position getAIMove(const GameState *game);
 
 #endif

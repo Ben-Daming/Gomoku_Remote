@@ -132,10 +132,64 @@ static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col
     }
 }
 
-// Alpha-Beta Search (Naive)
-static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha, int beta, Player player) {
+// 排序辅助结构体
+typedef struct {
+    Position move;
+    int score;
+} ScoredMove;
+
+// Forward declarations
+static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, UndoInfo* undo);
+static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, const UndoInfo* undo);
+
+// 降序比较函数
+static int compareScoredMoves(const void* a, const void* b) {
+    const ScoredMove* sa = (const ScoredMove*)a;
+    const ScoredMove* sb = (const ScoredMove*)b;
+    return sb->score - sa->score; // 降序
+}
+
+// Helper: Sort moves based on heuristics
+// Order: Killer Moves > Static Eval
+static void sortMoves(SearchContext* ctx, Position* moves, int count, int depth, Player player) {
+    ScoredMove scored_moves[225];
+    
+    for (int i = 0; i < count; i++) {
+        int score = 0;
+        
+        // 1. Killer Moves
+        if ((moves[i].row == ctx->killer_moves[depth][0].row && moves[i].col == ctx->killer_moves[depth][0].col) ||
+            (moves[i].row == ctx->killer_moves[depth][1].row && moves[i].col == ctx->killer_moves[depth][1].col)) {
+            score = 90000000;
+        }
+        // 2. Static Evaluation
+        else {
+            UndoInfo undo;
+            aiMakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
+            
+            // Score from the perspective of the player making the move
+            score = (player == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
+            
+            aiUnmakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
+        }
+        
+        scored_moves[i].move = moves[i];
+        scored_moves[i].score = score;
+    }
+
+    // Quick Sort
+    qsort(scored_moves, count, sizeof(ScoredMove), compareScoredMoves);
+
+    // Copy back
+    for (int i = 0; i < count; i++) {
+        moves[i] = scored_moves[i].move;
+    }
+}
+
+// Alpha-Beta Search (Naive with Heuristics)
+static int alphaBeta(SearchContext* ctx, int depth, int alpha, int beta, Player player) {
     // 1. Static Evaluation
-    int current_score = (player == PLAYER_BLACK) ? eval->total_score : -eval->total_score;
+    int current_score = (player == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
 
     if (current_score > WIN_THRESHOLD) return current_score; // Win
     if (current_score < -WIN_THRESHOLD) return current_score; // Loss
@@ -146,18 +200,25 @@ static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha
 
     // 2. Generate Moves
     Position moves[225];
-    int count = generateMoves(board, moves);
+    int count = generateMoves(&ctx->board, moves);
     if (count == 0) return 0; // Draw
 
+    // 3. Sort Moves
+    sortMoves(ctx, moves, count, depth, player);
+
     int best_score = -INF;
+    
+    // Beam Search: Limit the number of moves searched
+    int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < limit; i++) {
         UndoInfo undo;
-        aiMakeMove(board, eval, moves[i].row, moves[i].col, player, &undo);
+        aiMakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
+        ctx->nodes_searched++;
 
-        int score = -alphaBeta(board, eval, depth - 1, -beta, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+        int score = -alphaBeta(ctx, depth - 1, -beta, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
 
-        aiUnmakeMove(board, eval, moves[i].row, moves[i].col, player, &undo);
+        aiUnmakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
 
         if (score > best_score) {
             best_score = score;
@@ -168,6 +229,11 @@ static int alphaBeta(BitBoardState* board, EvalState* eval, int depth, int alpha
         }
         
         if (alpha >= beta) {
+            // Update Killer Moves
+            if (moves[i].row != ctx->killer_moves[depth][0].row || moves[i].col != ctx->killer_moves[depth][0].col) {
+                ctx->killer_moves[depth][1] = ctx->killer_moves[depth][0];
+                ctx->killer_moves[depth][0] = moves[i];
+            }
             break;
         }
     }
@@ -181,36 +247,44 @@ Position getAIMove(const GameState *game) {
         return (Position){BOARD_SIZE / 2, BOARD_SIZE / 2};
     }
 
-    // 1. Clone BitBoardState to avoid modifying the actual game
-    BitBoardState boardCopy = game->bitBoard;
+    // 1. Initialize Search Context
+    SearchContext ctx;
+    memset(&ctx, 0, sizeof(SearchContext));
     
-    // 2. Initialize EvalState
-    EvalState eval;
-    initEvalState(&boardCopy, &eval);
+    // Clone BitBoardState
+    ctx.board = game->bitBoard;
+    
+    // Initialize EvalState
+    initEvalState(&ctx.board, &ctx.eval);
 
     Player me = game->currentPlayer;
     
     // 3. Root Search (Fixed Depth)
-    // We need to replicate the loop here to find the best move, 
-    // since alphaBeta only returns score.
-    int depth = 6; // Fixed depth for naive search
+    int depth = SEARCH_DEPTH;
     
     Position moves[225];
-    int count = generateMoves(&boardCopy, moves);
+    int count = generateMoves(&ctx.board, moves);
     if (count == 0) return (Position){7, 7}; // Should not happen
+
+    // Sort root moves too
+    sortMoves(&ctx, moves, count, depth, me);
 
     int best_score = -INF;
     Position best_move = moves[0];
     int alpha = -INF;
     int beta = INF;
+    
+    // Beam Search at Root
+    int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < limit; i++) {
         UndoInfo undo;
-        aiMakeMove(&boardCopy, &eval, moves[i].row, moves[i].col, me, &undo);
+        aiMakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
+        ctx.nodes_searched++;
 
-        int score = -alphaBeta(&boardCopy, &eval, depth - 1, -beta, -alpha, (me == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+        int score = -alphaBeta(&ctx, depth - 1, -beta, -alpha, (me == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
 
-        aiUnmakeMove(&boardCopy, &eval, moves[i].row, moves[i].col, me, &undo);
+        aiUnmakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
 
         if (score > best_score) {
             best_score = score;
