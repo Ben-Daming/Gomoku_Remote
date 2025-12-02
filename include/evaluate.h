@@ -34,11 +34,15 @@ typedef struct {
     unsigned long long high;
 } Lines4;
 
-// Evaluate four lines in parallel
-// Returns the packed scores of all 4 lines
-// low:  [Score 2 (32 bits) | Score 1 (32 bits)]
-// high: [Score 4 (32 bits) | Score 3 (32 bits)]
-Lines4 evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask);
+// Structure to hold scores for both players
+typedef struct {
+    Lines4 me;
+    Lines4 enemy;
+} DualLines;
+
+// Evaluate four lines in parallel for both players
+// Returns the packed scores of all 4 lines for both players
+DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask);
 
 // Evaluate the entire board for a specific player
 // Returns the sum of scores for all lines (Vertical, Horizontal, Diagonals)

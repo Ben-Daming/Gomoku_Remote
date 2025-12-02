@@ -132,8 +132,9 @@ static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, 
         masks.high |= (((1ULL << lens[3]) - 1) << 32);
     }
 
-    Lines4 b_scores = evaluateLines4(b_lines, w_lines, masks);
-    Lines4 w_scores = evaluateLines4(w_lines, b_lines, masks);
+    DualLines scores = evaluateLines4(b_lines, w_lines, masks);
+    Lines4 b_scores = scores.me;
+    Lines4 w_scores = scores.enemy;
 
     // Unpack and update
     // Col
