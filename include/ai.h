@@ -17,7 +17,8 @@ typedef struct {
 
 typedef struct {
     Line move_mask_backup[15]; // Restore neighborhood mask
-    int old_line_net_scores[4]; // Restore old scores for the 4 affected lines
+    long long old_line_net_scores[4]; // Restore old scores for the 4 affected lines
+    long long old_total_score;
 } UndoInfo;
 
 // --- Search Parameters ---

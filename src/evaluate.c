@@ -78,6 +78,174 @@ int evaluateLine(Line me, Line enemy, int length) {
     return score;
 }
 
+// Parallel Evaluation of 4 Lines (128-bit SWAR via struct)
+Lines4 evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
+    Lines4 score = {0, 0};
+    
+    Lines4 valid;
+    valid.low = ~(me.low | enemy.low) & mask.low;
+    valid.high = ~(me.high | enemy.high) & mask.high;
+
+    // --- Parallel Logic (Identical to evaluateLine but 2x 64-bit) ---
+    
+    //连2，连3，连4，连5
+    Lines4 m2, m3, m4, m5;
+    
+    m2.low = me.low & (me.low >> 1);
+    m2.high = me.high & (me.high >> 1);
+    
+    m3.low = m2.low & (m2.low >> 1);
+    m3.high = m2.high & (m2.high >> 1);
+    
+    m4.low = m3.low & (m3.low >> 1);
+    m4.high = m3.high & (m3.high >> 1);
+    
+    m5.low = m4.low & (m4.low >> 1);
+    m5.high = m4.high & (m4.high >> 1);
+
+    // Check for Win immediately (Any m5 non-zero)
+    if (m5.low | m5.high) {
+        if (m5.low & 0xFFFFFFFFULL) score.low |= (unsigned long long)SCORE_FIVE;
+        if (m5.low & 0xFFFFFFFF00000000ULL) score.low |= ((unsigned long long)SCORE_FIVE << 32);
+        if (m5.high & 0xFFFFFFFFULL) score.high |= (unsigned long long)SCORE_FIVE;
+        if (m5.high & 0xFFFFFFFF00000000ULL) score.high |= ((unsigned long long)SCORE_FIVE << 32);
+        return score;
+    }
+
+    // m3 &= ~(m4 | (m4 << 1));//排除连四一部分
+    m2.low &= ~(m3.low | (m3.low << 1));
+    m2.high &= ~(m3.high | (m3.high << 1));
+
+    // 先判断连二
+    // 活二 (0110)
+    Lines4 live2;
+    live2.low = (valid.low << 1) & m2.low & (valid.low >> 2);
+    live2.high = (valid.high << 1) & m2.high & (valid.high >> 2);
+    
+    // 冲二 (0112, 2110)
+    Lines4 rush2;
+    rush2.low = m2.low & ((valid.low << 1) ^ (valid.low >> 2));
+    rush2.high = m2.high & ((valid.high << 1) ^ (valid.high >> 2));
+    
+    // 强活二 (001100) 
+    Lines4 strong_live2;
+    strong_live2.low = (valid.low << 2) & live2.low & (valid.low >> 3);
+    strong_live2.high = (valid.high << 2) & live2.high & (valid.high >> 3);
+
+    score.low += (unsigned long long)POPCOUNT64(strong_live2.low & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
+    score.low += ((unsigned long long)POPCOUNT64(strong_live2.low >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
+    score.high += (unsigned long long)POPCOUNT64(strong_live2.high & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
+    score.high += ((unsigned long long)POPCOUNT64(strong_live2.high >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
+
+    score.low += (unsigned long long)POPCOUNT64(live2.low & 0xFFFFFFFF) * SCORE_LIVE_2;
+    score.low += ((unsigned long long)POPCOUNT64(live2.low >> 32) * SCORE_LIVE_2) << 32;
+    score.high += (unsigned long long)POPCOUNT64(live2.high & 0xFFFFFFFF) * SCORE_LIVE_2;
+    score.high += ((unsigned long long)POPCOUNT64(live2.high >> 32) * SCORE_LIVE_2) << 32;
+
+    score.low += (unsigned long long)POPCOUNT64(rush2.low & 0xFFFFFFFF) * SCORE_RUSH_2;
+    score.low += ((unsigned long long)POPCOUNT64(rush2.low >> 32) * SCORE_RUSH_2) << 32;
+    score.high += (unsigned long long)POPCOUNT64(rush2.high & 0xFFFFFFFF) * SCORE_RUSH_2;
+    score.high += ((unsigned long long)POPCOUNT64(rush2.high >> 32) * SCORE_RUSH_2) << 32;
+
+    // 活三 (01110)
+    Lines4 live3_raw;
+    live3_raw.low = (valid.low << 1) & m3.low & (valid.low >> 3);
+    live3_raw.high = (valid.high << 1) & m3.high & (valid.high >> 3);
+    
+    // 冲连三 (21110, 01112)
+    Lines4 rush3_raw;
+    rush3_raw.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3.low;
+    rush3_raw.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3.high;
+    
+    // 跳三(1101, 1011)
+    Lines4 jump3_a, jump3_b;
+    jump3_a.low = me.low & (m2.low >> 2) & (valid.low >> 1);
+    jump3_a.high = me.high & (m2.high >> 2) & (valid.high >> 1);
+    
+    jump3_b.low = (me.low >> 3) & m2.low & (valid.low >> 2);
+    jump3_b.high = (me.high >> 3) & m2.high & (valid.high >> 2);
+    
+    Lines4 mask_0xxxx0, mask_axxxxb;
+    mask_0xxxx0.low = (valid.low >> 4) & (valid.low << 1);
+    mask_0xxxx0.high = (valid.high >> 4) & (valid.high << 1);
+    
+    mask_axxxxb.low = (valid.low >> 4) ^ (valid.low << 1);
+    mask_axxxxb.high = (valid.high >> 4) ^ (valid.high << 1);
+
+    // 活跳三(011010, 010110)
+    Lines4 live_jump3;
+    live_jump3.low = (jump3_a.low | jump3_b.low) & mask_0xxxx0.low;
+    live_jump3.high = (jump3_a.high | jump3_b.high) & mask_0xxxx0.high;
+    
+    score.low += (unsigned long long)POPCOUNT64(live_jump3.low & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
+    score.low += ((unsigned long long)POPCOUNT64(live_jump3.low >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
+    score.high += (unsigned long long)POPCOUNT64(live_jump3.high & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
+    score.high += ((unsigned long long)POPCOUNT64(live_jump3.high >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
+
+    // 活四 (011110)
+    Lines4 live4;
+    live4.low = m4.low & mask_0xxxx0.low;
+    live4.high = m4.high & mask_0xxxx0.high;
+    
+    score.low += (unsigned long long)POPCOUNT64(live4.low & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
+    score.low += ((unsigned long long)POPCOUNT64(live4.low >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
+    score.high += (unsigned long long)POPCOUNT64(live4.high & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
+    score.high += ((unsigned long long)POPCOUNT64(live4.high >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
+
+    // 冲四 (211110, 011112)
+    Lines4 rush4;
+    rush4.low = m4.low & mask_axxxxb.low;
+    rush4.high = m4.high & mask_axxxxb.high;
+    
+    score.low += (unsigned long long)POPCOUNT64(rush4.low & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
+    score.low += ((unsigned long long)POPCOUNT64(rush4.low >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
+    score.high += (unsigned long long)POPCOUNT64(rush4.high & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
+    score.high += ((unsigned long long)POPCOUNT64(rush4.high >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
+
+    // 跳四 (11101, 11011, 10111)
+    Lines4 jump4_1, jump4_2, jump4_3;
+    jump4_1.low = me.low & (valid.low >> 1) & (m3.low >> 2);
+    jump4_1.high = me.high & (valid.high >> 1) & (m3.high >> 2);
+    
+    jump4_2.low = m2.low & (valid.low >> 2) & (m2.low >> 3);
+    jump4_2.high = m2.high & (valid.high >> 2) & (m2.high >> 3);
+    
+    jump4_3.low = m3.low & (valid.low >> 3) & (me.low >> 4);
+    jump4_3.high = m3.high & (valid.high >> 3) & (me.high >> 4);
+
+
+    //消除假三
+    Lines4 live3, rush3;
+    live3.low = live3_raw.low & ~(jump4_1.low << 2) & ~jump4_3.low;
+    live3.high = live3_raw.high & ~(jump4_1.high << 2) & ~jump4_3.high;
+    
+    rush3.low = rush3_raw.low & ~(jump4_1.low << 2) & ~jump4_3.low;
+    rush3.high = rush3_raw.high & ~(jump4_1.high << 2) & ~jump4_3.high;
+
+    score.low += (unsigned long long)POPCOUNT64(live3.low & 0xFFFFFFFF) * SCORE_LIVE_3;
+    score.low += ((unsigned long long)POPCOUNT64(live3.low >> 32) * SCORE_LIVE_3) << 32;
+    score.high += (unsigned long long)POPCOUNT64(live3.high & 0xFFFFFFFF) * SCORE_LIVE_3;
+    score.high += ((unsigned long long)POPCOUNT64(live3.high >> 32) * SCORE_LIVE_3) << 32;
+
+    score.low += (unsigned long long)POPCOUNT64(rush3.low & 0xFFFFFFFF) * SCORE_RUSH_3;
+    score.low += ((unsigned long long)POPCOUNT64(rush3.low >> 32) * SCORE_RUSH_3) << 32;
+    score.high += (unsigned long long)POPCOUNT64(rush3.high & 0xFFFFFFFF) * SCORE_RUSH_3;
+    score.high += ((unsigned long long)POPCOUNT64(rush3.high >> 32) * SCORE_RUSH_3) << 32;
+
+    // Score Jump 4 (Rush 4 equivalent)
+    unsigned long long jump4_low = jump4_1.low | jump4_2.low | jump4_3.low;
+    unsigned long long jump4_high = jump4_1.high | jump4_2.high | jump4_3.high;
+    
+    score.low += (unsigned long long)POPCOUNT64(jump4_low & 0xFFFFFFFF) * SCORE_RUSH_4;
+    score.low += ((unsigned long long)POPCOUNT64(jump4_low >> 32) * SCORE_RUSH_4) << 32;
+    score.high += (unsigned long long)POPCOUNT64(jump4_high & 0xFFFFFFFF) * SCORE_RUSH_4;
+    score.high += ((unsigned long long)POPCOUNT64(jump4_high >> 32) * SCORE_RUSH_4) << 32;
+
+    return score;
+}
+
+// --- Board Scanning Helpers ---
+
 // Parallel Evaluation of 2 Lines (Batching)
 // Stride = 32 bits (15 data + 17 guard) to fit 2 lines in 64 bits
 // Line 1 at bit 0, Line 2 at bit 32

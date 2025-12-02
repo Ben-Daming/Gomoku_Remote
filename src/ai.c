@@ -39,20 +39,20 @@ static void initEvalState(const BitBoardState* board, EvalState* eval) {
     // 1. Cols & Rows
     for (int i = 0; i < BOARD_SIZE; i++) {
         // Cols
-        Line b = board->black.cols[i];
-        Line w = board->white.cols[i];
-        unsigned long long scores = evaluateLines2(b, w, BOARD_SIZE, w, b, BOARD_SIZE);
-        int score = (int)scores - (int)(scores >> 32);
-        eval->line_net_scores[DIR_COL][i] = score;
-        eval->total_score += score;
-
+        Line b_col = board->black.cols[i];
+        Line w_col = board->white.cols[i];
+        int b_score = evaluateLine(b_col, w_col, BOARD_SIZE);
+        int w_score = evaluateLine(w_col, b_col, BOARD_SIZE);
+        eval->line_net_scores[DIR_COL][i] = b_score - w_score;
+        eval->total_score += eval->line_net_scores[DIR_COL][i];
+        
         // Rows
-        b = board->black.rows[i];
-        w = board->white.rows[i];
-        scores = evaluateLines2(b, w, BOARD_SIZE, w, b, BOARD_SIZE);
-        score = (int)scores - (int)(scores >> 32);
-        eval->line_net_scores[DIR_ROW][i] = score;
-        eval->total_score += score;
+        Line b_row = board->black.rows[i];
+        Line w_row = board->white.rows[i];
+        b_score = evaluateLine(b_row, w_row, BOARD_SIZE);
+        w_score = evaluateLine(w_row, b_row, BOARD_SIZE);
+        eval->line_net_scores[DIR_ROW][i] = b_score - w_score;
+        eval->total_score += eval->line_net_scores[DIR_ROW][i];
     }
 
     // 2. Diagonals
@@ -61,20 +61,20 @@ static void initEvalState(const BitBoardState* board, EvalState* eval) {
         if (len < 5) continue;
 
         // Diag1
-        Line b = board->black.diag1[i];
-        Line w = board->white.diag1[i];
-        unsigned long long scores = evaluateLines2(b, w, len, w, b, len);
-        int score = (int)scores - (int)(scores >> 32);
-        eval->line_net_scores[DIR_DIAG1][i] = score;
-        eval->total_score += score;
+        Line b_d1 = board->black.diag1[i];
+        Line w_d1 = board->white.diag1[i];
+        int b_score = evaluateLine(b_d1, w_d1, len);
+        int w_score = evaluateLine(w_d1, b_d1, len);
+        eval->line_net_scores[DIR_DIAG1][i] = b_score - w_score;
+        eval->total_score += eval->line_net_scores[DIR_DIAG1][i];
 
         // Diag2
-        b = board->black.diag2[i];
-        w = board->white.diag2[i];
-        scores = evaluateLines2(b, w, len, w, b, len);
-        score = (int)scores - (int)(scores >> 32);
-        eval->line_net_scores[DIR_DIAG2][i] = score;
-        eval->total_score += score;
+        Line b_d2 = board->black.diag2[i];
+        Line w_d2 = board->white.diag2[i];
+        b_score = evaluateLine(b_d2, w_d2, len);
+        w_score = evaluateLine(w_d2, b_d2, len);
+        eval->line_net_scores[DIR_DIAG2][i] = b_score - w_score;
+        eval->total_score += eval->line_net_scores[DIR_DIAG2][i];
     }
 }
 
@@ -86,34 +86,82 @@ static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, 
     indices[2] = row - col + (BOARD_SIZE - 1);
     indices[3] = row + col;
 
-    // 1. Backup old scores & remove from total
-    for (int i = 0; i < 4; i++) {
-        int idx = indices[i];
-        undo->old_line_net_scores[i] = eval->line_net_scores[i][idx];
+    // 1. Backup old state
+    undo->old_total_score = eval->total_score;
+    for(int i=0; i<4; i++) {
+        undo->old_line_net_scores[i] = eval->line_net_scores[i][indices[i]];
+        // Subtract old scores from total
         eval->total_score -= undo->old_line_net_scores[i];
     }
 
-    // 2. Update BitBoard (Pass backup buffer for move_mask)
+    // 2. Update BitBoard
     updateBitBoard(board, row, col, player, undo->move_mask_backup);
 
-    // 3. Calculate new scores
-    for (int i = 0; i < 4; i++) {
-        int idx = indices[i];
-        int len = getLineLength(i, idx);
-        
-        if (len < 5) {
-            eval->line_net_scores[i][idx] = 0;
-            continue;
-        }
+    // 3. Calculate NEW scores using evaluateLines4
+    Lines4 b_lines, w_lines, masks;
+    int lens[4];
+    for(int i=0; i<4; i++) lens[i] = getLineLength(i, indices[i]);
 
-        Line b = getLineStatus(board, i, idx, PLAYER_BLACK);
-        Line w = getLineStatus(board, i, idx, PLAYER_WHITE);
+    // Pack Lines: [Diag2 | Diag1 | Row | Col]
+    // Low: [Row (32-63) | Col (0-31)]
+    // High: [Diag2 (32-63) | Diag1 (0-31)]
+    
+    // Col
+    b_lines.low = (unsigned long long)board->black.cols[col];
+    w_lines.low = (unsigned long long)board->white.cols[col];
+    masks.low = (1ULL << lens[0]) - 1;
 
-        unsigned long long scores = evaluateLines2(b, w, len, w, b, len);
-        int net_score = (int)scores - (int)(scores >> 32);
-        
-        eval->line_net_scores[i][idx] = net_score;
-        eval->total_score += net_score;
+    // Row
+    b_lines.low |= ((unsigned long long)board->black.rows[row] << 32);
+    w_lines.low |= ((unsigned long long)board->white.rows[row] << 32);
+    masks.low |= (((1ULL << lens[1]) - 1) << 32);
+
+    // Diag1
+    if (lens[2] >= 5) {
+        b_lines.high = (unsigned long long)board->black.diag1[indices[2]];
+        w_lines.high = (unsigned long long)board->white.diag1[indices[2]];
+        masks.high = (1ULL << lens[2]) - 1;
+    } else {
+        b_lines.high = 0; w_lines.high = 0; masks.high = 0;
+    }
+
+    // Diag2
+    if (lens[3] >= 5) {
+        b_lines.high |= ((unsigned long long)board->black.diag2[indices[3]] << 32);
+        w_lines.high |= ((unsigned long long)board->white.diag2[indices[3]] << 32);
+        masks.high |= (((1ULL << lens[3]) - 1) << 32);
+    }
+
+    Lines4 b_scores = evaluateLines4(b_lines, w_lines, masks);
+    Lines4 w_scores = evaluateLines4(w_lines, b_lines, masks);
+
+    // Unpack and update
+    // Col
+    int b_score = (int)(b_scores.low & 0xFFFFFFFF);
+    int w_score = (int)(w_scores.low & 0xFFFFFFFF);
+    eval->line_net_scores[DIR_COL][col] = b_score - w_score;
+    eval->total_score += eval->line_net_scores[DIR_COL][col];
+
+    // Row
+    b_score = (int)(b_scores.low >> 32);
+    w_score = (int)(w_scores.low >> 32);
+    eval->line_net_scores[DIR_ROW][row] = b_score - w_score;
+    eval->total_score += eval->line_net_scores[DIR_ROW][row];
+
+    // Diag1
+    if (lens[2] >= 5) {
+        b_score = (int)(b_scores.high & 0xFFFFFFFF);
+        w_score = (int)(w_scores.high & 0xFFFFFFFF);
+        eval->line_net_scores[DIR_DIAG1][indices[2]] = b_score - w_score;
+        eval->total_score += eval->line_net_scores[DIR_DIAG1][indices[2]];
+    }
+
+    // Diag2
+    if (lens[3] >= 5) {
+        b_score = (int)(b_scores.high >> 32);
+        w_score = (int)(w_scores.high >> 32);
+        eval->line_net_scores[DIR_DIAG2][indices[3]] = b_score - w_score;
+        eval->total_score += eval->line_net_scores[DIR_DIAG2][indices[3]];
     }
 }
 
@@ -121,19 +169,17 @@ static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col
     // 1. Restore BitBoard
     undoBitBoard(board, row, col, player, undo->move_mask_backup);
 
-    // Calculate indices
+    // 2. Restore scores
+    eval->total_score = undo->old_total_score;
+    
     int indices[4];
     indices[0] = col;
     indices[1] = row;
     indices[2] = row - col + (BOARD_SIZE - 1);
     indices[3] = row + col;
 
-    // 2. Restore scores
-    for (int i = 0; i < 4; i++) {
-        int idx = indices[i];
-        eval->total_score -= eval->line_net_scores[i][idx]; // Remove current
-        eval->line_net_scores[i][idx] = undo->old_line_net_scores[i]; // Restore old
-        eval->total_score += undo->old_line_net_scores[i]; // Add old
+    for(int i=0; i<4; i++) {
+        eval->line_net_scores[i][indices[i]] = undo->old_line_net_scores[i];
     }
 }
 

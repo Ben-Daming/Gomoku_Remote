@@ -26,6 +26,20 @@ int evaluateLine(Line me, Line enemy, int length);
 // Returns a packed 64-bit integer: [Score2 (32 bits) | Score1 (32 bits)]
 unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Line enemy2, int len2);
 
+// Structure to hold 4 packed lines (128 bits total)
+// low:  [Line 2 (32 bits) | Line 1 (32 bits)]
+// high: [Line 4 (32 bits) | Line 3 (32 bits)]
+typedef struct {
+    unsigned long long low;
+    unsigned long long high;
+} Lines4;
+
+// Evaluate four lines in parallel
+// Returns the packed scores of all 4 lines
+// low:  [Score 2 (32 bits) | Score 1 (32 bits)]
+// high: [Score 4 (32 bits) | Score 3 (32 bits)]
+Lines4 evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask);
+
 // Evaluate the entire board for a specific player
 // Returns the sum of scores for all lines (Vertical, Horizontal, Diagonals)
 int evaluateBoard(const BitBoardState *bitBoard, Player player);
