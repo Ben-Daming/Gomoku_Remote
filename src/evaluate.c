@@ -3,6 +3,7 @@
 
 // Helper macro for population count (number of set bits)
 #define POPCOUNT(x) __builtin_popcount(x)
+#define POPCOUNT64(x) __builtin_popcountll(x)
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 
 // --- Core Evaluation Kernel (Bitwise SWAR) ---
@@ -73,6 +74,113 @@ int evaluateLine(Line me, Line enemy, int length) {
 
     // Score Jump 4 (Rush 4 equivalent)
     score += POPCOUNT(jump4_1 | jump4_2 | jump4_3) * SCORE_RUSH_4;
+
+    return score;
+}
+
+// Parallel Evaluation of 2 Lines (Batching)
+// Stride = 32 bits (15 data + 17 guard) to fit 2 lines in 64 bits
+// Line 1 at bit 0, Line 2 at bit 32
+unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Line enemy2, int len2) {
+    unsigned long long score = 0;
+    
+    // Pack inputs into 64-bit integers
+    // Line 1: Bits 0-14
+    // Line 2: Bits 32-46
+    unsigned long long me = (unsigned long long)me1 | ((unsigned long long)me2 << 32);
+    unsigned long long enemy = (unsigned long long)enemy1 | ((unsigned long long)enemy2 << 32);
+    
+    // Create masks
+    unsigned long long mask1 = (1ULL << len1) - 1;
+    unsigned long long mask2 = (1ULL << len2) - 1;
+    unsigned long long mask = mask1 | (mask2 << 32);
+    
+    unsigned long long valid = ~(me | enemy) & mask;
+
+    // --- Parallel Logic (Identical to evaluateLine but 64-bit) ---
+    
+    //连2，连3，连4，连5
+    unsigned long long m2 = me & (me >> 1); 
+    unsigned long long m3 = m2 & (m2 >> 1);
+    unsigned long long m4 = m3 & (m3 >> 1);
+    unsigned long long m5 = m4 & (m4 >> 1);
+
+    // Check for Win immediately (Any m5 non-zero)
+    if (m5) {
+        // If m5 has bits in lower 32, Line 1 wins. If upper 32, Line 2 wins.
+        unsigned long long win_score = 0;
+        if (m5 & 0xFFFFFFFFULL) win_score |= (unsigned long long)SCORE_FIVE;
+        if (m5 & 0xFFFFFFFF00000000ULL) win_score |= ((unsigned long long)SCORE_FIVE << 32);
+        return win_score;
+    }
+
+    // m3 &= ~(m4 | (m4 << 1));//排除连四一部分
+    m2 &= ~(m3 | (m3 << 1));
+
+    // 先判断连二
+    // 活二 (0110)
+    unsigned long long live2 = (valid << 1) & m2 & (valid >> 2);
+    // 冲二 (0112, 2110)
+    unsigned long long rush2 = m2 & ((valid << 1) ^ (valid >> 2));
+    // 强活二 (001100) 
+    unsigned long long strong_live2 = (valid << 2) & live2 & (valid >> 3);
+
+    score += (unsigned long long)POPCOUNT(strong_live2 & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
+    score += ((unsigned long long)POPCOUNT(strong_live2 >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
+
+    score += (unsigned long long)POPCOUNT(live2 & 0xFFFFFFFF) * SCORE_LIVE_2;
+    score += ((unsigned long long)POPCOUNT(live2 >> 32) * SCORE_LIVE_2) << 32;
+
+    score += (unsigned long long)POPCOUNT(rush2 & 0xFFFFFFFF) * SCORE_RUSH_2;
+    score += ((unsigned long long)POPCOUNT(rush2 >> 32) * SCORE_RUSH_2) << 32;
+
+    // 活三 (01110)
+    unsigned long long live3_raw = (valid << 1) & m3 & (valid >> 3);
+    // 冲连三 (21110, 01112)
+    unsigned long long rush3_raw = ((valid << 1) ^ (valid >> 3)) & m3;
+    
+    // 跳三(1101, 1011)
+    unsigned long long jump3_a = me & (m2 >> 2) & (valid >> 1);//1101
+    unsigned long long jump3_b = (me >> 3) & m2 & (valid >> 2);//1011  
+    
+    unsigned long long mask_0xxxx0 = (valid >> 4) & (valid << 1);
+    unsigned long long mask_axxxxb = (valid >> 4) ^ (valid << 1); //两边有一个0
+
+    // 活跳三(011010, 010110)
+    unsigned long long live_jump3 = (jump3_a | jump3_b) & mask_0xxxx0;
+    score += (unsigned long long)POPCOUNT(live_jump3 & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
+    score += ((unsigned long long)POPCOUNT(live_jump3 >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
+
+    // 活四 (011110)
+    unsigned long long live4 = m4 & mask_0xxxx0;
+    score += (unsigned long long)POPCOUNT(live4 & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
+    score += ((unsigned long long)POPCOUNT(live4 >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
+
+    // 冲四 (211110, 011112)
+    unsigned long long rush4 = m4 & mask_axxxxb;
+    score += (unsigned long long)POPCOUNT(rush4 & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
+    score += ((unsigned long long)POPCOUNT(rush4 >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
+
+    // 跳四 (11101, 11011, 10111)
+    unsigned long long jump4_1 = me & (valid >> 1) & (m3 >> 2); // 11101
+    unsigned long long jump4_2 = m2 & (valid >> 2) & (m2 >> 3); // 11011
+    unsigned long long jump4_3 = m3 & (valid >> 3) & (me >> 4); // 10111
+
+
+    //消除假三
+    unsigned long long live3 = live3_raw & ~(jump4_1 << 2) & ~jump4_3;
+    unsigned long long rush3 = rush3_raw & ~(jump4_1 << 2) & ~jump4_3;
+
+    score += (unsigned long long)POPCOUNT(live3 & 0xFFFFFFFF) * SCORE_LIVE_3;
+    score += ((unsigned long long)POPCOUNT(live3 >> 32) * SCORE_LIVE_3) << 32;
+
+    score += (unsigned long long)POPCOUNT(rush3 & 0xFFFFFFFF) * SCORE_RUSH_3;
+    score += ((unsigned long long)POPCOUNT(rush3 >> 32) * SCORE_RUSH_3) << 32;
+
+    // Score Jump 4 (Rush 4 equivalent)
+    unsigned long long jump4 = jump4_1 | jump4_2 | jump4_3;
+    score += (unsigned long long)POPCOUNT(jump4 & 0xFFFFFFFF) * SCORE_RUSH_4;
+    score += ((unsigned long long)POPCOUNT(jump4 >> 32) * SCORE_RUSH_4) << 32;
 
     return score;
 }

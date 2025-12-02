@@ -14,13 +14,13 @@
 #define DIR_DIAG2 3
 
 // Helper: Get length of a line
-static int getLineLength(int dir, int idx) {
+static inline int getLineLength(int dir, int idx) {
     if (dir == DIR_COL || dir == DIR_ROW) return BOARD_SIZE;
     return BOARD_SIZE - ABS(idx - (BOARD_SIZE - 1));
 }
 
 // Helper: Get line status from BitBoard
-static Line getLineStatus(const BitBoardState* board, int dir, int idx, Player player) {
+static inline Line getLineStatus(const BitBoardState* board, int dir, int idx, Player player) {
     const PlayerBitBoard* pBoard = (player == PLAYER_BLACK) ? &board->black : &board->white;
     switch(dir) {
         case DIR_COL: return pBoard->cols[idx];
@@ -41,14 +41,16 @@ static void initEvalState(const BitBoardState* board, EvalState* eval) {
         // Cols
         Line b = board->black.cols[i];
         Line w = board->white.cols[i];
-        int score = evaluateLine(b, w, BOARD_SIZE) - evaluateLine(w, b, BOARD_SIZE);
+        unsigned long long scores = evaluateLines2(b, w, BOARD_SIZE, w, b, BOARD_SIZE);
+        int score = (int)scores - (int)(scores >> 32);
         eval->line_net_scores[DIR_COL][i] = score;
         eval->total_score += score;
 
         // Rows
         b = board->black.rows[i];
         w = board->white.rows[i];
-        score = evaluateLine(b, w, BOARD_SIZE) - evaluateLine(w, b, BOARD_SIZE);
+        scores = evaluateLines2(b, w, BOARD_SIZE, w, b, BOARD_SIZE);
+        score = (int)scores - (int)(scores >> 32);
         eval->line_net_scores[DIR_ROW][i] = score;
         eval->total_score += score;
     }
@@ -61,14 +63,16 @@ static void initEvalState(const BitBoardState* board, EvalState* eval) {
         // Diag1
         Line b = board->black.diag1[i];
         Line w = board->white.diag1[i];
-        int score = evaluateLine(b, w, len) - evaluateLine(w, b, len);
+        unsigned long long scores = evaluateLines2(b, w, len, w, b, len);
+        int score = (int)scores - (int)(scores >> 32);
         eval->line_net_scores[DIR_DIAG1][i] = score;
         eval->total_score += score;
 
         // Diag2
         b = board->black.diag2[i];
         w = board->white.diag2[i];
-        score = evaluateLine(b, w, len) - evaluateLine(w, b, len);
+        scores = evaluateLines2(b, w, len, w, b, len);
+        score = (int)scores - (int)(scores >> 32);
         eval->line_net_scores[DIR_DIAG2][i] = score;
         eval->total_score += score;
     }
@@ -105,7 +109,8 @@ static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, 
         Line b = getLineStatus(board, i, idx, PLAYER_BLACK);
         Line w = getLineStatus(board, i, idx, PLAYER_WHITE);
 
-        int net_score = evaluateLine(b, w, len) - evaluateLine(w, b, len);
+        unsigned long long scores = evaluateLines2(b, w, len, w, b, len);
+        int net_score = (int)scores - (int)(scores >> 32);
         
         eval->line_net_scores[i][idx] = net_score;
         eval->total_score += net_score;

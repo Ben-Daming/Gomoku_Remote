@@ -21,6 +21,11 @@
 // length: Effective length of the line (for diagonals)
 int evaluateLine(Line me, Line enemy, int length);
 
+// Evaluate two lines in parallel (Batching)
+// Packs two lines into a 64-bit integer to compute scores simultaneously
+// Returns a packed 64-bit integer: [Score2 (32 bits) | Score1 (32 bits)]
+unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Line enemy2, int len2);
+
 // Evaluate the entire board for a specific player
 // Returns the sum of scores for all lines (Vertical, Horizontal, Diagonals)
 int evaluateBoard(const BitBoardState *bitBoard, Player player);

@@ -10,9 +10,9 @@
 typedef struct {
     // Cache net scores for 4 directions (Black Score - White Score)
     // [0]: Col, [1]: Row, [2]: Diag1, [3]: Diag2
-    int line_net_scores[4][MAX_LINES]; 
+    long long line_net_scores[4][MAX_LINES]; 
     
-    int total_score; // Global score = Sum(line_net_scores)
+    long long total_score; // Global score = Sum(line_net_scores)
 } EvalState;
 
 typedef struct {
