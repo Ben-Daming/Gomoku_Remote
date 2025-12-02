@@ -11,7 +11,7 @@
 #define SCORE_LIVE_3         6000
 #define SCORE_JUMP_LIVE_3    4000
 #define SCORE_RUSH_3         700
-#define SCORE_STRONG_LIVE_2_ADDITION  100
+#define SCORE_STRONG_LIVE_2  200
 #define SCORE_LIVE_2         100
 #define SCORE_RUSH_2         20
 
