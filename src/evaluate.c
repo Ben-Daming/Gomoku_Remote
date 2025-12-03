@@ -189,19 +189,7 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     scores.me.high += ((unsigned long long)POPCOUNT64(strong_live2_me.high >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
     scores.enemy.high += ((unsigned long long)POPCOUNT64(strong_live2_enemy.high >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
 
-    // === Stage 5: Live3/Rush3 Raw ===
-    Lines4 live3_raw_me, live3_raw_enemy;
-    live3_raw_me.low = (valid.low << 1) & m3_me.low & (valid.low >> 3);
-    live3_raw_enemy.low = (valid.low << 1) & m3_enemy.low & (valid.low >> 3);
-    live3_raw_me.high = (valid.high << 1) & m3_me.high & (valid.high >> 3);
-    live3_raw_enemy.high = (valid.high << 1) & m3_enemy.high & (valid.high >> 3);
     
-    Lines4 rush3_raw_me, rush3_raw_enemy;
-    rush3_raw_me.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3_me.low;
-    rush3_raw_enemy.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3_enemy.low;
-    rush3_raw_me.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3_me.high;
-    rush3_raw_enemy.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3_enemy.high;
-
     // === Stage 6: Jump3 ===
     Lines4 jump3_a_me, jump3_a_enemy, jump3_b_me, jump3_b_enemy;
     jump3_a_me.low = me.low & (m2_me.low >> 2) & (valid.low >> 1);
@@ -278,16 +266,19 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     jump4_3_enemy.high = m3_enemy.high & (valid.high >> 3) & (enemy.high >> 4);
 
     // === Stage 9: Finalize Live3 & Rush3 (after jump4 filtering) ===
+
+    // === Stage 5: Live3/Rush3 Raw ===
+    Lines4 live3_raw_me, live3_raw_enemy;
+    live3_raw_me.low = (valid.low << 1) & m3_me.low & (valid.low >> 3);
+    live3_raw_enemy.low = (valid.low << 1) & m3_enemy.low & (valid.low >> 3);
+    live3_raw_me.high = (valid.high << 1) & m3_me.high & (valid.high >> 3);
+    live3_raw_enemy.high = (valid.high << 1) & m3_enemy.high & (valid.high >> 3);
+    
     Lines4 live3_me, live3_enemy, rush3_me, rush3_enemy;
     live3_me.low = live3_raw_me.low & ~(jump4_1_me.low << 2) & ~jump4_3_me.low;
     live3_enemy.low = live3_raw_enemy.low & ~(jump4_1_enemy.low << 2) & ~jump4_3_enemy.low;
     live3_me.high = live3_raw_me.high & ~(jump4_1_me.high << 2) & ~jump4_3_me.high;
     live3_enemy.high = live3_raw_enemy.high & ~(jump4_1_enemy.high << 2) & ~jump4_3_enemy.high;
-    
-    rush3_me.low = rush3_raw_me.low & ~(jump4_1_me.low << 2) & ~jump4_3_me.low;
-    rush3_enemy.low = rush3_raw_enemy.low & ~(jump4_1_enemy.low << 2) & ~jump4_3_enemy.low;
-    rush3_me.high = rush3_raw_me.high & ~(jump4_1_me.high << 2) & ~jump4_3_me.high;
-    rush3_enemy.high = rush3_raw_enemy.high & ~(jump4_1_enemy.high << 2) & ~jump4_3_enemy.high;
 
     scores.me.low += (unsigned long long)POPCOUNT64(live3_me.low & 0xFFFFFFFF) * SCORE_LIVE_3;
     scores.enemy.low += (unsigned long long)POPCOUNT64(live3_enemy.low & 0xFFFFFFFF) * SCORE_LIVE_3;
@@ -297,6 +288,18 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     scores.enemy.high += (unsigned long long)POPCOUNT64(live3_enemy.high & 0xFFFFFFFF) * SCORE_LIVE_3;
     scores.me.high += ((unsigned long long)POPCOUNT64(live3_me.high >> 32) * SCORE_LIVE_3) << 32;
     scores.enemy.high += ((unsigned long long)POPCOUNT64(live3_enemy.high >> 32) * SCORE_LIVE_3) << 32;
+
+    Lines4 rush3_raw_me, rush3_raw_enemy;
+    rush3_raw_me.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3_me.low;
+    rush3_raw_enemy.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3_enemy.low;
+    rush3_raw_me.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3_me.high;
+    rush3_raw_enemy.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3_enemy.high;
+
+    rush3_me.low = rush3_raw_me.low & ~(jump4_1_me.low << 2) & ~jump4_3_me.low;
+    rush3_enemy.low = rush3_raw_enemy.low & ~(jump4_1_enemy.low << 2) & ~jump4_3_enemy.low;
+    rush3_me.high = rush3_raw_me.high & ~(jump4_1_me.high << 2) & ~jump4_3_me.high;
+    rush3_enemy.high = rush3_raw_enemy.high & ~(jump4_1_enemy.high << 2) & ~jump4_3_enemy.high;
+
 
     scores.me.low += (unsigned long long)POPCOUNT64(rush3_me.low & 0xFFFFFFFF) * SCORE_RUSH_3;
     scores.enemy.low += (unsigned long long)POPCOUNT64(rush3_enemy.low & 0xFFFFFFFF) * SCORE_RUSH_3;

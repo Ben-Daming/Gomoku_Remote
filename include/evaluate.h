@@ -4,16 +4,26 @@
 #include "types.h"
 #include "bitboard.h"
 
-// Score Constants (Based on AI Migration Plan Step 2)
-#define SCORE_FIVE           10000000
-#define SCORE_LIVE_4         50000
-#define SCORE_RUSH_4         8000
-#define SCORE_LIVE_3         6000
-#define SCORE_JUMP_LIVE_3    4000
-#define SCORE_RUSH_3         700
-#define SCORE_STRONG_LIVE_2  200
-#define SCORE_LIVE_2         100
-#define SCORE_RUSH_2         20
+// 禁手位移量
+#define _SHIFT 6
+
+// 活三,四掩码
+#define _MASK_3 0b111
+#define _MASK_4 0b111000
+
+// 四的基数
+#define BASE_4 (1 << (_SHIFT / 2))
+
+// 评分宏
+#define SCORE_FIVE           ((10000000) <<( _SHIFT))
+#define SCORE_LIVE_4         (((50000) << (_SHIFT)) + BASE_4)
+#define SCORE_RUSH_4         (((8000) << (_SHIFT)) + BASE_4)
+#define SCORE_LIVE_3         (((6000) << (_SHIFT)) + 1)
+#define SCORE_JUMP_LIVE_3    (((4000) << (_SHIFT)) + 1)
+#define SCORE_RUSH_3         (((700) << (_SHIFT)))
+#define SCORE_STRONG_LIVE_2  ((200) << (_SHIFT))
+#define SCORE_LIVE_2         ((100) << (_SHIFT))
+#define SCORE_RUSH_2         ((20) << (_SHIFT))
 
 // Evaluate a single line (15 bits)
 // me: Bitmask of current player's stones

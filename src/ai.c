@@ -3,10 +3,14 @@
 #include "../include/evaluate.h"
 #include <string.h>
 #include <stdlib.h>
+#include<stdio.h>
 
 #define INF 100000000
 #define WIN_THRESHOLD 90000
 #define ABS(x) ((x) < 0 ? -(x) : (x))
+#define RESOLVE_SCORE(score) ((score) >> _SHIFT)
+#define RESOLVE_3(score) ((score) & ((BASE_4 - 1)))
+#define RESOLVE_4(score) (((score) & ((1 << (_SHIFT)) - BASE_4)) >> (_SHIFT / 2))
 
 #define DIR_COL 0
 #define DIR_ROW 1
@@ -35,24 +39,35 @@ static inline Line getLineStatus(const BitBoardState* board, int dir, int idx, P
 static void initEvalState(const BitBoardState* board, EvalState* eval) {
     eval->total_score = 0;
     memset(eval->line_net_scores, 0, sizeof(eval->line_net_scores));
+    memset(eval->count_live3, 0, sizeof(eval->count_live3));
+    memset(eval->count_4, 0, sizeof(eval->count_4));
+
 
     // 1. Cols & Rows
     for (int i = 0; i < BOARD_SIZE; i++) {
         // Cols
-        Line b_col = board->black.cols[i];
-        Line w_col = board->white.cols[i];
-        int b_score = evaluateLine(b_col, w_col, BOARD_SIZE);
-        int w_score = evaluateLine(w_col, b_col, BOARD_SIZE);
-        eval->line_net_scores[DIR_COL][i] = b_score - w_score;
-        eval->total_score += eval->line_net_scores[DIR_COL][i];
-        
+        Line b = board->black.cols[i];
+        Line w = board->white.cols[i];
+        unsigned long long scores = evaluateLines2(b, w, BOARD_SIZE, w, b, BOARD_SIZE);
+        int b_score = RESOLVE_SCORE((int)scores);
+        int w_score = RESOLVE_SCORE((int)(scores >> 32));
+        int score = b_score - w_score;
+        eval->line_net_scores[DIR_COL][i] = score;
+        eval->count_live3[DIR_COL][i] = RESOLVE_3((int)scores);
+        eval->count_4[DIR_COL][i] = RESOLVE_4((int)scores);
+        eval->total_score += score;
+
         // Rows
-        Line b_row = board->black.rows[i];
-        Line w_row = board->white.rows[i];
-        b_score = evaluateLine(b_row, w_row, BOARD_SIZE);
-        w_score = evaluateLine(w_row, b_row, BOARD_SIZE);
-        eval->line_net_scores[DIR_ROW][i] = b_score - w_score;
-        eval->total_score += eval->line_net_scores[DIR_ROW][i];
+        b = board->black.rows[i];
+        w = board->white.rows[i];
+        scores = evaluateLines2(b, w, BOARD_SIZE, w, b, BOARD_SIZE);
+        b_score = RESOLVE_SCORE((int)scores);
+        w_score = RESOLVE_SCORE((int)(scores >> 32));
+        score = b_score - w_score;
+        eval->line_net_scores[DIR_ROW][i] = score;
+        eval->count_live3[DIR_ROW][i] = RESOLVE_3((int)scores);
+        eval->count_4[DIR_ROW][i] = RESOLVE_4((int)scores);
+        eval->total_score += score;
     }
 
     // 2. Diagonals
@@ -61,21 +76,107 @@ static void initEvalState(const BitBoardState* board, EvalState* eval) {
         if (len < 5) continue;
 
         // Diag1
-        Line b_d1 = board->black.diag1[i];
-        Line w_d1 = board->white.diag1[i];
-        int b_score = evaluateLine(b_d1, w_d1, len);
-        int w_score = evaluateLine(w_d1, b_d1, len);
-        eval->line_net_scores[DIR_DIAG1][i] = b_score - w_score;
-        eval->total_score += eval->line_net_scores[DIR_DIAG1][i];
+        Line b = board->black.diag1[i];
+        Line w = board->white.diag1[i];
+        unsigned long long scores = evaluateLines2(b, w, len, w, b, len);
+        int b_score = RESOLVE_SCORE((int)scores);
+        int w_score = RESOLVE_SCORE((int)(scores >> 32));
+        int score = b_score - w_score;
+        eval->line_net_scores[DIR_DIAG1][i] = score;
+        eval->count_live3[DIR_DIAG1][i] = RESOLVE_3((int)scores);
+        eval->count_4[DIR_DIAG1][i] = RESOLVE_4((int)scores);
+        eval->total_score += score;
 
         // Diag2
-        Line b_d2 = board->black.diag2[i];
-        Line w_d2 = board->white.diag2[i];
-        b_score = evaluateLine(b_d2, w_d2, len);
-        w_score = evaluateLine(w_d2, b_d2, len);
-        eval->line_net_scores[DIR_DIAG2][i] = b_score - w_score;
-        eval->total_score += eval->line_net_scores[DIR_DIAG2][i];
+        b = board->black.diag2[i];
+        w = board->white.diag2[i];
+        scores = evaluateLines2(b, w, len, w, b, len);
+        b_score = RESOLVE_SCORE((int)scores);
+        w_score = RESOLVE_SCORE((int)(scores >> 32));
+        score = b_score - w_score;
+        eval->line_net_scores[DIR_DIAG2][i] = score;
+        eval->count_live3[DIR_DIAG2][i] = RESOLVE_3((int)scores);
+        eval->count_4[DIR_DIAG2][i] = RESOLVE_4((int)scores);
+        eval->total_score += score;
     }
+    // // 1. Cols & Rows
+    // for (int i = 0; i < BOARD_SIZE; i++) {
+    //     // Cols
+    //     Line b_col = board->black.cols[i];
+    //     Line w_col = board->white.cols[i];
+    //     int b_score = evaluateLine(b_col, w_col, BOARD_SIZE);
+    //     int w_score = evaluateLine(w_col, b_col, BOARD_SIZE);
+        
+    //     eval->line_net_scores[DIR_COL][i] = RESOLVE_SCORE(b_score) - RESOLVE_SCORE(w_score);
+    //     eval->count_live3[DIR_COL][i] = RESOLVE_3(b_score);
+    //     eval->count_4[DIR_COL][i] = RESOLVE_4(b_score);
+    //     eval->total_score += eval->line_net_scores[DIR_COL][i];
+        
+    //     // Rows
+    //     Line b_row = board->black.rows[i];
+    //     Line w_row = board->white.rows[i];
+    //     b_score = evaluateLine(b_row, w_row, BOARD_SIZE);
+    //     w_score = evaluateLine(w_row, b_row, BOARD_SIZE);
+        
+    //     eval->line_net_scores[DIR_ROW][i] = RESOLVE_SCORE(b_score) - RESOLVE_SCORE(w_score);
+    //     eval->count_live3[DIR_ROW][i] = RESOLVE_3(b_score);
+    //     eval->count_4[DIR_ROW][i] = RESOLVE_4(b_score);
+    //     eval->total_score += eval->line_net_scores[DIR_ROW][i];
+    // }
+
+    // // 2. Diagonals
+    // for (int i = 0; i < (BOARD_SIZE * 2 - 1); i++) {
+    //     int len = getLineLength(DIR_DIAG1, i);
+    //     if (len < 5) continue;
+
+    //     // Diag1
+    //     Line b_d1 = board->black.diag1[i];
+    //     Line w_d1 = board->white.diag1[i];
+    //     int b_score = evaluateLine(b_d1, w_d1, len);
+    //     int w_score = evaluateLine(w_d1, b_d1, len);
+        
+    //     eval->line_net_scores[DIR_DIAG1][i] = RESOLVE_SCORE(b_score) - RESOLVE_SCORE(w_score);
+    //     eval->count_live3[DIR_DIAG1][i] = RESOLVE_3(b_score);
+    //     eval->count_4[DIR_DIAG1][i] = RESOLVE_4(b_score);
+    //     eval->total_score += eval->line_net_scores[DIR_DIAG1][i];
+
+    //     // Diag2
+    //     Line b_d2 = board->black.diag2[i];
+    //     Line w_d2 = board->white.diag2[i];
+    //     b_score = evaluateLine(b_d2, w_d2, len);
+    //     w_score = evaluateLine(w_d2, b_d2, len);
+        
+    //     eval->line_net_scores[DIR_DIAG2][i] = RESOLVE_SCORE(b_score) - RESOLVE_SCORE(w_score);
+    //     eval->count_live3[DIR_DIAG2][i] = RESOLVE_3(b_score);
+    //     eval->count_4[DIR_DIAG2][i] = RESOLVE_4(b_score);
+    //     eval->total_score += eval->line_net_scores[DIR_DIAG2][i];
+    // }
+    //print all init data on (6, 10)
+    // for(int i = 0; i < 4; i++){
+    //     // Print all direction of eval
+    //     char tmp[100];
+    //     switch (i)
+    //     {
+    //     case 0:
+    //         sprintf(tmp, "Column");
+    //         break;
+    //     case 1:
+    //         sprintf(tmp, "Row");
+    //         break;
+    //     case 2:
+    //         sprintf(tmp, "Diagonal \\");
+    //         break;
+    //     case 3:
+    //         sprintf(tmp, "Diagonal /");
+    //         break;
+    //     default:
+    //         break;
+    //     }
+    //     printf("Direction %s: net_score=%d, live3=%d, four=%d\n", tmp, 
+    //         (int)eval->line_net_scores[i][(i==0)?10:((i==1)?6:((i==2)?(6-10+BOARD_SIZE-1):(6+10)))],
+    //         (int)eval->count_live3[i][(i==0)?10:((i==1)?6:((i==2)?(6-10+BOARD_SIZE-1):(6+10)))],
+    //         (int)eval->count_4[i][(i==0)?10:((i==1)?6:((i==2)?(6-10+BOARD_SIZE-1):(6+10)))]);
+    // }
 }
 
 static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, UndoInfo* undo) {
@@ -90,6 +191,8 @@ static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, 
     undo->old_total_score = eval->total_score;
     for(int i=0; i<4; i++) {
         undo->old_line_net_scores[i] = eval->line_net_scores[i][indices[i]];
+        undo->old_count_live3[i] = eval->count_live3[i][indices[i]];
+        undo->old_count_4[i] = eval->count_4[i][indices[i]];
         // Subtract old scores from total
         eval->total_score -= undo->old_line_net_scores[i];
     }
@@ -138,32 +241,84 @@ static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, 
 
     // Unpack and update
     // Col
-    int b_score = (int)(b_scores.low & 0xFFFFFFFF);
-    int w_score = (int)(w_scores.low & 0xFFFFFFFF);
+    int b_score = RESOLVE_SCORE(b_scores.low & 0xFFFFFFFF);
+    int w_score = RESOLVE_SCORE(w_scores.low & 0xFFFFFFFF);
+    int col_live3 = RESOLVE_3(b_scores.low & 0xFFFFFFFF);
+    int col_4 = RESOLVE_4(b_scores.low & 0xFFFFFFFF);
+
     eval->line_net_scores[DIR_COL][col] = b_score - w_score;
+    eval->count_live3[DIR_COL][col] = col_live3;
+    eval->count_4[DIR_COL][col] = col_4;
     eval->total_score += eval->line_net_scores[DIR_COL][col];
 
     // Row
-    b_score = (int)(b_scores.low >> 32);
-    w_score = (int)(w_scores.low >> 32);
+    b_score = RESOLVE_SCORE(b_scores.low >> 32);
+    w_score = RESOLVE_SCORE(w_scores.low >> 32);
+    int row_live3 = RESOLVE_3(b_scores.low >> 32);
+    int row_4 = RESOLVE_4(b_scores.low >> 32);
+    
     eval->line_net_scores[DIR_ROW][row] = b_score - w_score;
+    eval->count_live3[DIR_ROW][row] = row_live3;
+    eval->count_4[DIR_ROW][row] = row_4;
     eval->total_score += eval->line_net_scores[DIR_ROW][row];
 
     // Diag1
     if (lens[2] >= 5) {
-        b_score = (int)(b_scores.high & 0xFFFFFFFF);
-        w_score = (int)(w_scores.high & 0xFFFFFFFF);
+        b_score = RESOLVE_SCORE(b_scores.high & 0xFFFFFFFF);
+        w_score = RESOLVE_SCORE(w_scores.high & 0xFFFFFFFF);
+        int diag1_live3 = RESOLVE_3(b_scores.high & 0xFFFFFFFF);
+        int diag1_4 = RESOLVE_4(b_scores.high & 0xFFFFFFFF);
+        
         eval->line_net_scores[DIR_DIAG1][indices[2]] = b_score - w_score;
+        eval->count_live3[DIR_DIAG1][indices[2]] = diag1_live3;
+        eval->count_4[DIR_DIAG1][indices[2]] = diag1_4;
         eval->total_score += eval->line_net_scores[DIR_DIAG1][indices[2]];
     }
 
     // Diag2
     if (lens[3] >= 5) {
-        b_score = (int)(b_scores.high >> 32);
-        w_score = (int)(w_scores.high >> 32);
+        b_score = RESOLVE_SCORE(b_scores.high >> 32);
+        w_score = RESOLVE_SCORE(w_scores.high >> 32);
+        int diag2_live3 = RESOLVE_3(b_scores.high >> 32);
+        int diag2_4 = RESOLVE_4(b_scores.high >> 32);
+        
         eval->line_net_scores[DIR_DIAG2][indices[3]] = b_score - w_score;
+        eval->count_live3[DIR_DIAG2][indices[3]] = diag2_live3;
+        eval->count_4[DIR_DIAG2][indices[3]] = diag2_4;
         eval->total_score += eval->line_net_scores[DIR_DIAG2][indices[3]];
     }
+
+    // 禁手判断 (仅对黑棋)
+    if (player == PLAYER_BLACK) {
+        int new_live3_count = 0;
+        int new_4_count = 0;
+        
+        // 计算新产生的活三和四的总数
+        for (int i = 0; i < 4; i++) {
+            int idx = indices[i];
+            // 跳过长度不足5的对角线
+            if ((i == 2 || i == 3) && lens[i] < 5) continue;
+            
+            // 新产生的数量 = 当前数量 - 旧数量
+            int diff_3 = eval->count_live3[i][idx] - undo->old_count_live3[i];
+            int diff_4 = eval->count_4[i][idx] - undo->old_count_4[i];
+            
+            if (diff_3 > 0) new_live3_count += diff_3;
+            if (diff_4 > 0) new_4_count += diff_4;
+            
+            // Debug info for potential forbidden moves
+            // if (diff_3 > 0 || diff_4 > 0) {
+            //    printf("Move (%d, %d) Dir %d: +Live3=%d, +Four=%d\n", row, col, i, diff_3, diff_4);
+            // }
+        }
+        
+        // 判断是否触发禁手：双活三(33)或双四(44)
+        if (new_live3_count >= 2 || new_4_count >= 2) {
+            // printf("Forbidden move detected at (%d, %d): Live3=%d, Four=%d\n", row, col, new_live3_count, new_4_count);
+            eval->total_score = -INF;
+        }
+    }
+
 }
 
 static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, const UndoInfo* undo) {
@@ -181,6 +336,8 @@ static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col
 
     for(int i=0; i<4; i++) {
         eval->line_net_scores[i][indices[i]] = undo->old_line_net_scores[i];
+        eval->count_live3[i][indices[i]] = undo->old_count_live3[i];
+        eval->count_4[i][indices[i]] = undo->old_count_4[i];
     }
 }
 
@@ -299,6 +456,8 @@ Position getAIMove(const GameState *game) {
         return (Position){BOARD_SIZE / 2, BOARD_SIZE / 2};
     }
 
+    // printf("AI thinking...\n");
+
     // 1. Initialize Search Context
     SearchContext ctx;
     memset(&ctx, 0, sizeof(SearchContext));
@@ -328,13 +487,22 @@ Position getAIMove(const GameState *game) {
     
     // Beam Search at Root
     int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
-
+    UndoInfo undo;
     for (int i = 0; i < limit; i++) {
-        UndoInfo undo;
         aiMakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
+        
+        // Check if root move is forbidden (for Black)
+        if (me == PLAYER_BLACK && ctx.eval.total_score == -INF) {
+             printf("Root move (%d, %d) is FORBIDDEN. Skipping.\n", moves[i].row, moves[i].col);
+             aiUnmakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
+             continue;
+        }
+
         ctx.nodes_searched++;
 
         int score = -alphaBeta(&ctx, depth - 1, -beta, -alpha, (me == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+
+        // printf("Root move (%d, %d) score: %d\n", moves[i].row, moves[i].col, score);
 
         aiUnmakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
 
@@ -347,6 +515,61 @@ Position getAIMove(const GameState *game) {
             alpha = score;
         }
     }
-
+    //trace best move
+    printf("currently the score is: %lld\n", ctx.eval.total_score);
+    for(int i = 0; i < 4; i++){
+        // Print all direction of eval
+        char tmp[100];
+        switch (i)
+        {
+        case 0:
+            sprintf(tmp, "Column");
+            break;
+        case 1:
+            sprintf(tmp, "Row");
+            break;
+        case 2:
+            sprintf(tmp, "Diagonal \\");
+            break;
+        case 3:
+            sprintf(tmp, "Diagonal /");
+            break;
+        default:
+            break;
+        }
+        printf("Direction %s: net_score=%d, live3=%d, four=%d\n", tmp, 
+            (int)ctx.eval.line_net_scores[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))],
+            (int)ctx.eval.count_live3[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))],
+            (int)ctx.eval.count_4[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))]);
+    }
+    aiMakeMove(&ctx.board, &ctx.eval, best_move.row, best_move.col, me, &undo);
+    printf("SCORE of AI moving (%d, %d): %lld\n", best_move.row, best_move.col, ctx.eval.total_score);
+    for(int i = 0; i < 4; i++){
+        // Print all direction of eval
+        char tmp[100];
+        switch (i)
+        {
+        case 0:
+            sprintf(tmp, "Column");
+            break;
+        case 1:
+            sprintf(tmp, "Row");
+            break;
+        case 2:
+            sprintf(tmp, "Diagonal \\");
+            break;
+        case 3:
+            sprintf(tmp, "Diagonal /");
+            break;
+        default:
+            break;
+        }
+        printf("Direction %s: net_score=%d, live3=%d, four=%d\n", tmp, 
+            (int)ctx.eval.line_net_scores[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))],
+            (int)ctx.eval.count_live3[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))],
+            (int)ctx.eval.count_4[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))]);
+    }
+    aiUnmakeMove(&ctx.board, &ctx.eval, best_move.row, best_move.col, me, &undo);
+    printf("AI selects move (%d, %d) with score %d after searching %ld nodes.\n", best_move.row, best_move.col, best_score, ctx.nodes_searched*1000);
     return best_move;
 }
