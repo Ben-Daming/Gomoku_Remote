@@ -1,12 +1,12 @@
 CC := gcc
 BASIC_CFLAGS := -Wall -Wextra -Iinclude
 DEBUG_FLAGS := -Og -g 
-OPT_FLAGS := -O3 -g
+OPT_FLAGS := -O3 -g -march=native
 MAD_OPT_FLAGS := -march=native -mtune=native -flto -fwhole-program
 SRC_DIR := src
 BUILD_DIR := build
-CFLAGS := $(BASIC_CFLAGS) $(OPT_FLAGS)
-MADFLAGS := $(BASIC_CFLAGS) $(OPT_FLAGS) $(MAD_OPT_FLAGS)
+CFLAGS := $(BASIC_CFLAGS) $(OPT_FLAGS) -fopenmp
+MADFLAGS := $(BASIC_CFLAGS) $(OPT_FLAGS) $(MAD_OPT_FLAGS) -fopenmp
 SRCS := $(wildcard $(SRC_DIR)/*.c)
 OBJS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 TARGET := $(BUILD_DIR)/gomoku

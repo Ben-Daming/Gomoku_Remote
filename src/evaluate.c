@@ -78,252 +78,149 @@
 //     return score;
 // }
 
-// Parallel Evaluation of 4 Lines (128-bit SWAR via struct)
-// Interleaved ME and ENEMY computation for maximum ILP
+// Parallel Evaluation of 4 Lines (Vectorized via Array Packing)
+// This approach packs the 4 lines (Me Low/High, Enemy Low/High) into arrays
+// to allow the compiler to vectorize the bitwise logic using AVX2/SIMD.
+// POPCOUNT is performed sequentially afterwards as it is a scalar instruction.
 DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     DualLines scores = {{0, 0}, {0, 0}};
-    
-    Lines4 valid;
-    valid.low = ~(me.low | enemy.low) & mask.low;
-    valid.high = ~(me.high | enemy.high) & mask.high;
 
-    // Shared masks derived from valid
-    Lines4 mask_0xxxx0, mask_axxxxb;
-    mask_0xxxx0.low = (valid.low >> 4) & (valid.low << 1);
-    mask_0xxxx0.high = (valid.high >> 4) & (valid.high << 1);
-    
-    mask_axxxxb.low = (valid.low >> 4) ^ (valid.low << 1);
-    mask_axxxxb.high = (valid.high >> 4) ^ (valid.high << 1);
+    // 1. Pre-calculate valid (Interaction between me and enemy, not suitable for unified SIMD loop)
+    unsigned long long valid_low = ~(me.low | enemy.low) & mask.low;
+    unsigned long long valid_high = ~(me.high | enemy.high) & mask.high;
 
-    // Declare all intermediate variables for both players
-    Lines4 m2_me, m3_me, m4_me, m5_me;
-    Lines4 m2_enemy, m3_enemy, m4_enemy, m5_enemy;
+    // 2. Prepare Input Arrays (Data Packing)
+    // Layout: [Me_Low, Me_High, Enemy_Low, Enemy_High]
+    unsigned long long inputs[4] = {me.low, me.high, enemy.low, enemy.high};
     
-    // === Stage 1: Compute m2, m3, m4, m5 (Interleaved) ===
-    m2_me.low = me.low & (me.low >> 1);
-    m2_enemy.low = enemy.low & (enemy.low >> 1);
-    m2_me.high = me.high & (me.high >> 1);
-    m2_enemy.high = enemy.high & (enemy.high >> 1);
-    
-    m3_me.low = m2_me.low & (m2_me.low >> 1);
-    m3_enemy.low = m2_enemy.low & (m2_enemy.low >> 1);
-    m3_me.high = m2_me.high & (m2_me.high >> 1);
-    m3_enemy.high = m2_enemy.high & (m2_enemy.high >> 1);
-    
-    m4_me.low = m3_me.low & (m3_me.low >> 1);
-    m4_enemy.low = m3_enemy.low & (m3_enemy.low >> 1);
-    m4_me.high = m3_me.high & (m3_me.high >> 1);
-    m4_enemy.high = m3_enemy.high & (m3_enemy.high >> 1);
-    
-    m5_me.low = m4_me.low & (m4_me.low >> 1);
-    m5_enemy.low = m4_enemy.low & (m4_enemy.low >> 1);
-    m5_me.high = m4_me.high & (m4_me.high >> 1);
-    m5_enemy.high = m4_enemy.high & (m4_enemy.high >> 1);
+    // Prepare Valid Masks
+    // Layout: [valid_low, valid_high, valid_low, valid_high]
+    unsigned long long valids[4] = {valid_low, valid_high, valid_low, valid_high};
 
-    // === Check for Five (Early Exit) ===
-    if (m5_me.low | m5_me.high) {
-        if (m5_me.low & 0xFFFFFFFFULL) scores.me.low |= (unsigned long long)SCORE_FIVE;
-        if (m5_me.low & 0xFFFFFFFF00000000ULL) scores.me.low |= ((unsigned long long)SCORE_FIVE << 32);
-        if (m5_me.high & 0xFFFFFFFFULL) scores.me.high |= (unsigned long long)SCORE_FIVE;
-        if (m5_me.high & 0xFFFFFFFF00000000ULL) scores.me.high |= ((unsigned long long)SCORE_FIVE << 32);
+    // Output Arrays for Features
+    unsigned long long res_m5[4];
+    unsigned long long res_live2[4], res_rush2[4], res_strong_live2[4];
+    unsigned long long res_live_jump3[4];
+    unsigned long long res_live3[4], res_rush3[4];
+    unsigned long long res_live4[4], res_rush4[4];
+    unsigned long long res_jump4[4];
+
+    // ==========================================================
+    // 3. Core Vectorized Loop (The SIMD Loop)
+    // Compiler should unroll this and use AVX2 (4x64-bit)
+    // ==========================================================
+    #pragma omp simd
+    for (int i = 0; i < 4; i++) {
+        unsigned long long my_line = inputs[i];
+        unsigned long long valid = valids[i];
+
+        // Shared masks (Calculated locally to allow vectorization)
+        unsigned long long mask_0xxxx0 = (valid >> 4) & (valid << 1);
+        unsigned long long mask_axxxxb = (valid >> 4) ^ (valid << 1);
+
+        // --- Stage 1: Basic Connections ---
+        unsigned long long m2 = my_line & (my_line >> 1);
+        unsigned long long m3 = m2 & (m2 >> 1);
+        unsigned long long m4 = m3 & (m3 >> 1);
+        unsigned long long m5 = m4 & (m4 >> 1);
+        
+        res_m5[i] = m5;
+
+        // --- Stage 2: Refine m2 ---
+        m2 &= ~(m3 | (m3 << 1));
+
+        // --- Stage 3: Live 2 & Rush 2 ---
+        unsigned long long live2 = (valid << 1) & m2 & (valid >> 2);
+        unsigned long long rush2 = m2 & ((valid << 1) ^ (valid >> 2));
+        
+        res_live2[i] = live2;
+        res_rush2[i] = rush2;
+
+        // --- Stage 4: Strong Live 2 ---
+        unsigned long long strong_live2 = (valid << 2) & live2 & (valid >> 3);
+        res_strong_live2[i] = strong_live2;
+
+        // --- Stage 6: Jump 3 ---
+        unsigned long long jump3_a = my_line & (m2 >> 2) & (valid >> 1);
+        unsigned long long jump3_b = (my_line >> 3) & m2 & (valid >> 2);
+        unsigned long long live_jump3 = (jump3_a | jump3_b) & mask_0xxxx0;
+        
+        res_live_jump3[i] = live_jump3;
+
+        // --- Stage 7: Live 4 & Rush 4 ---
+        unsigned long long live4 = m4 & mask_0xxxx0;
+        unsigned long long rush4 = m4 & mask_axxxxb;
+        
+        res_live4[i] = live4;
+        res_rush4[i] = rush4;
+
+        // --- Stage 8: Jump 4 ---
+        unsigned long long jump4_1 = my_line & (valid >> 1) & (m3 >> 2);
+        unsigned long long jump4_2 = m2 & (valid >> 2) & (m2 >> 3);
+        unsigned long long jump4_3 = m3 & (valid >> 3) & (my_line >> 4);
+        unsigned long long jump4 = jump4_1 | jump4_2 | jump4_3;
+        
+        res_jump4[i] = jump4;
+
+        // --- Stage 9: Live 3 & Rush 3 Finalize ---
+        unsigned long long live3_raw = (valid << 1) & m3 & (valid >> 3);
+        unsigned long long rush3_raw = ((valid << 1) ^ (valid >> 3)) & m3;
+        
+        unsigned long long filter = ~(jump4_1 << 2) & ~jump4_3;
+        
+        unsigned long long live3 = live3_raw & filter;
+        unsigned long long rush3 = rush3_raw & filter;
+        
+        res_live3[i] = live3;
+        res_rush3[i] = rush3;
+    }
+
+    // ==========================================================
+    // 4. Scalar Reduction (Scoring)
+    // ==========================================================
+
+    // Check for Five (Early Exit)
+    // Indices: 0=MeLow, 1=MeHigh, 2=EnLow, 3=EnHigh
+    if (res_m5[0] | res_m5[1]) {
+        if (res_m5[0] & 0xFFFFFFFFULL) scores.me.low |= (unsigned long long)SCORE_FIVE;
+        if (res_m5[0] & 0xFFFFFFFF00000000ULL) scores.me.low |= ((unsigned long long)SCORE_FIVE << 32);
+        if (res_m5[1] & 0xFFFFFFFFULL) scores.me.high |= (unsigned long long)SCORE_FIVE;
+        if (res_m5[1] & 0xFFFFFFFF00000000ULL) scores.me.high |= ((unsigned long long)SCORE_FIVE << 32);
         return scores;
     }
-    if (m5_enemy.low | m5_enemy.high) {
-        if (m5_enemy.low & 0xFFFFFFFFULL) scores.enemy.low |= (unsigned long long)SCORE_FIVE;
-        if (m5_enemy.low & 0xFFFFFFFF00000000ULL) scores.enemy.low |= ((unsigned long long)SCORE_FIVE << 32);
-        if (m5_enemy.high & 0xFFFFFFFFULL) scores.enemy.high |= (unsigned long long)SCORE_FIVE;
-        if (m5_enemy.high & 0xFFFFFFFF00000000ULL) scores.enemy.high |= ((unsigned long long)SCORE_FIVE << 32);
+    if (res_m5[2] | res_m5[3]) {
+        if (res_m5[2] & 0xFFFFFFFFULL) scores.enemy.low |= (unsigned long long)SCORE_FIVE;
+        if (res_m5[2] & 0xFFFFFFFF00000000ULL) scores.enemy.low |= ((unsigned long long)SCORE_FIVE << 32);
+        if (res_m5[3] & 0xFFFFFFFFULL) scores.enemy.high |= (unsigned long long)SCORE_FIVE;
+        if (res_m5[3] & 0xFFFFFFFF00000000ULL) scores.enemy.high |= ((unsigned long long)SCORE_FIVE << 32);
         return scores;
     }
 
-    // === Stage 2: Refine m2 (exclude m3) ===
-    m2_me.low &= ~(m3_me.low | (m3_me.low << 1));
-    m2_enemy.low &= ~(m3_enemy.low | (m3_enemy.low << 1));
-    m2_me.high &= ~(m3_me.high | (m3_me.high << 1));
-    m2_enemy.high &= ~(m3_enemy.high | (m3_enemy.high << 1));
-
-    // === Stage 3: Live 2 & Rush 2 ===
-    Lines4 live2_me, live2_enemy;
-    live2_me.low = (valid.low << 1) & m2_me.low & (valid.low >> 2);
-    live2_enemy.low = (valid.low << 1) & m2_enemy.low & (valid.low >> 2);
-    live2_me.high = (valid.high << 1) & m2_me.high & (valid.high >> 2);
-    live2_enemy.high = (valid.high << 1) & m2_enemy.high & (valid.high >> 2);
-
-    scores.me.low += (unsigned long long)POPCOUNT64(live2_me.low & 0xFFFFFFFF) * SCORE_LIVE_2;
-    scores.enemy.low += (unsigned long long)POPCOUNT64(live2_enemy.low & 0xFFFFFFFF) * SCORE_LIVE_2;
-    scores.me.low += ((unsigned long long)POPCOUNT64(live2_me.low >> 32) * SCORE_LIVE_2) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(live2_enemy.low >> 32) * SCORE_LIVE_2) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(live2_me.high & 0xFFFFFFFF) * SCORE_LIVE_2;
-    scores.enemy.high += (unsigned long long)POPCOUNT64(live2_enemy.high & 0xFFFFFFFF) * SCORE_LIVE_2;
-    scores.me.high += ((unsigned long long)POPCOUNT64(live2_me.high >> 32) * SCORE_LIVE_2) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(live2_enemy.high >> 32) * SCORE_LIVE_2) << 32;
-
-    Lines4 rush2_me, rush2_enemy;
-    rush2_me.low = m2_me.low & ((valid.low << 1) ^ (valid.low >> 2));
-    rush2_enemy.low = m2_enemy.low & ((valid.low << 1) ^ (valid.low >> 2));
-    rush2_me.high = m2_me.high & ((valid.high << 1) ^ (valid.high >> 2));
-    rush2_enemy.high = m2_enemy.high & ((valid.high << 1) ^ (valid.high >> 2));
-
-    scores.me.low += (unsigned long long)POPCOUNT64(rush2_me.low & 0xFFFFFFFF) * SCORE_RUSH_2;
-    scores.enemy.low += (unsigned long long)POPCOUNT64(rush2_enemy.low & 0xFFFFFFFF) * SCORE_RUSH_2;
-    scores.me.low += ((unsigned long long)POPCOUNT64(rush2_me.low >> 32) * SCORE_RUSH_2) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(rush2_enemy.low >> 32) * SCORE_RUSH_2) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(rush2_me.high & 0xFFFFFFFF) * SCORE_RUSH_2;
-    scores.enemy.high += (unsigned long long)POPCOUNT64(rush2_enemy.high & 0xFFFFFFFF) * SCORE_RUSH_2;
-    scores.me.high += ((unsigned long long)POPCOUNT64(rush2_me.high >> 32) * SCORE_RUSH_2) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(rush2_enemy.high >> 32) * SCORE_RUSH_2) << 32;
-
-    // === Stage 4: Strong Live 2 ===
-    Lines4 strong_live2_me, strong_live2_enemy;
-    strong_live2_me.low = (valid.low << 2) & live2_me.low & (valid.low >> 3);
-    strong_live2_enemy.low = (valid.low << 2) & live2_enemy.low & (valid.low >> 3);
-    strong_live2_me.high = (valid.high << 2) & live2_me.high & (valid.high >> 3);
-    strong_live2_enemy.high = (valid.high << 2) & live2_enemy.high & (valid.high >> 3);
-
-    scores.me.low += (unsigned long long)POPCOUNT64(strong_live2_me.low & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
-    scores.enemy.low += (unsigned long long)POPCOUNT64(strong_live2_enemy.low & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
-    scores.me.low += ((unsigned long long)POPCOUNT64(strong_live2_me.low >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(strong_live2_enemy.low >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(strong_live2_me.high & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
-    scores.enemy.high += (unsigned long long)POPCOUNT64(strong_live2_enemy.high & 0xFFFFFFFF) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2);
-    scores.me.high += ((unsigned long long)POPCOUNT64(strong_live2_me.high >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(strong_live2_enemy.high >> 32) * (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2)) << 32;
-
+    // Accumulate Scores
+    unsigned long long* targets[4] = {&scores.me.low, &scores.me.high, &scores.enemy.low, &scores.enemy.high};
     
-    // === Stage 6: Jump3 ===
-    Lines4 jump3_a_me, jump3_a_enemy, jump3_b_me, jump3_b_enemy;
-    jump3_a_me.low = me.low & (m2_me.low >> 2) & (valid.low >> 1);
-    jump3_a_enemy.low = enemy.low & (m2_enemy.low >> 2) & (valid.low >> 1);
-    jump3_a_me.high = me.high & (m2_me.high >> 2) & (valid.high >> 1);
-    jump3_a_enemy.high = enemy.high & (m2_enemy.high >> 2) & (valid.high >> 1);
-    
-    jump3_b_me.low = (me.low >> 3) & m2_me.low & (valid.low >> 2);
-    jump3_b_enemy.low = (enemy.low >> 3) & m2_enemy.low & (valid.low >> 2);
-    jump3_b_me.high = (me.high >> 3) & m2_me.high & (valid.high >> 2);
-    jump3_b_enemy.high = (enemy.high >> 3) & m2_enemy.high & (valid.high >> 2);
-    
-    Lines4 live_jump3_me, live_jump3_enemy;
-    live_jump3_me.low = (jump3_a_me.low | jump3_b_me.low) & mask_0xxxx0.low;
-    live_jump3_enemy.low = (jump3_a_enemy.low | jump3_b_enemy.low) & mask_0xxxx0.low;
-    live_jump3_me.high = (jump3_a_me.high | jump3_b_me.high) & mask_0xxxx0.high;
-    live_jump3_enemy.high = (jump3_a_enemy.high | jump3_b_enemy.high) & mask_0xxxx0.high;
-    
-    scores.me.low += (unsigned long long)POPCOUNT64(live_jump3_me.low & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
-    scores.enemy.low += (unsigned long long)POPCOUNT64(live_jump3_enemy.low & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
-    scores.me.low += ((unsigned long long)POPCOUNT64(live_jump3_me.low >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(live_jump3_enemy.low >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(live_jump3_me.high & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
-    scores.enemy.high += (unsigned long long)POPCOUNT64(live_jump3_enemy.high & 0xFFFFFFFF) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2);
-    scores.me.high += ((unsigned long long)POPCOUNT64(live_jump3_me.high >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(live_jump3_enemy.high >> 32) * (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2)) << 32;
+    for (int i = 0; i < 4; i++) {
+        unsigned long long score_acc = 0;
+        unsigned long long high_acc = 0;
 
-    // === Stage 7: Live4 & Rush4 ===
-    Lines4 live4_me, live4_enemy;
-    live4_me.low = m4_me.low & mask_0xxxx0.low;
-    live4_enemy.low = m4_enemy.low & mask_0xxxx0.low;
-    live4_me.high = m4_me.high & mask_0xxxx0.high;
-    live4_enemy.high = m4_enemy.high & mask_0xxxx0.high;
-    
-    scores.me.low += (unsigned long long)POPCOUNT64(live4_me.low & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
-    scores.enemy.low += (unsigned long long)POPCOUNT64(live4_enemy.low & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
-    scores.me.low += ((unsigned long long)POPCOUNT64(live4_me.low >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(live4_enemy.low >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(live4_me.high & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
-    scores.enemy.high += (unsigned long long)POPCOUNT64(live4_enemy.high & 0xFFFFFFFF) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3);
-    scores.me.high += ((unsigned long long)POPCOUNT64(live4_me.high >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(live4_enemy.high >> 32) * (SCORE_LIVE_4 - 2 * SCORE_RUSH_3)) << 32;
+        #define ACC(feats, score_val) \
+            score_acc += (unsigned long long)POPCOUNT64(feats[i] & 0xFFFFFFFF) * score_val; \
+            high_acc  += (unsigned long long)POPCOUNT64(feats[i] >> 32) * score_val;
 
-    Lines4 rush4_me, rush4_enemy;
-    rush4_me.low = m4_me.low & mask_axxxxb.low;
-    rush4_enemy.low = m4_enemy.low & mask_axxxxb.low;
-    rush4_me.high = m4_me.high & mask_axxxxb.high;
-    rush4_enemy.high = m4_enemy.high & mask_axxxxb.high;
-    
-    scores.me.low += (unsigned long long)POPCOUNT64(rush4_me.low & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
-    scores.enemy.low += (unsigned long long)POPCOUNT64(rush4_enemy.low & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
-    scores.me.low += ((unsigned long long)POPCOUNT64(rush4_me.low >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(rush4_enemy.low >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(rush4_me.high & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
-    scores.enemy.high += (unsigned long long)POPCOUNT64(rush4_enemy.high & 0xFFFFFFFF) * (SCORE_RUSH_4 - SCORE_RUSH_3);
-    scores.me.high += ((unsigned long long)POPCOUNT64(rush4_me.high >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(rush4_enemy.high >> 32) * (SCORE_RUSH_4 - SCORE_RUSH_3)) << 32;
+        ACC(res_live2, SCORE_LIVE_2);
+        ACC(res_rush2, SCORE_RUSH_2);
+        ACC(res_strong_live2, (SCORE_STRONG_LIVE_2 - SCORE_LIVE_2));
+        ACC(res_live_jump3, (SCORE_JUMP_LIVE_3 - SCORE_LIVE_2));
+        ACC(res_live3, SCORE_LIVE_3);
+        ACC(res_rush3, SCORE_RUSH_3);
+        ACC(res_live4, (SCORE_LIVE_4 - 2 * SCORE_RUSH_3));
+        ACC(res_rush4, (SCORE_RUSH_4 - SCORE_RUSH_3));
+        ACC(res_jump4, SCORE_RUSH_4);
+        
+        #undef ACC
 
-    // === Stage 8: Jump4 (all 3 variants) ===
-    Lines4 jump4_1_me, jump4_1_enemy, jump4_2_me, jump4_2_enemy, jump4_3_me, jump4_3_enemy;
-    jump4_1_me.low = me.low & (valid.low >> 1) & (m3_me.low >> 2);
-    jump4_1_enemy.low = enemy.low & (valid.low >> 1) & (m3_enemy.low >> 2);
-    jump4_1_me.high = me.high & (valid.high >> 1) & (m3_me.high >> 2);
-    jump4_1_enemy.high = enemy.high & (valid.high >> 1) & (m3_enemy.high >> 2);
-    
-    jump4_2_me.low = m2_me.low & (valid.low >> 2) & (m2_me.low >> 3);
-    jump4_2_enemy.low = m2_enemy.low & (valid.low >> 2) & (m2_enemy.low >> 3);
-    jump4_2_me.high = m2_me.high & (valid.high >> 2) & (m2_me.high >> 3);
-    jump4_2_enemy.high = m2_enemy.high & (valid.high >> 2) & (m2_enemy.high >> 3);
-    
-    jump4_3_me.low = m3_me.low & (valid.low >> 3) & (me.low >> 4);
-    jump4_3_enemy.low = m3_enemy.low & (valid.low >> 3) & (enemy.low >> 4);
-    jump4_3_me.high = m3_me.high & (valid.high >> 3) & (me.high >> 4);
-    jump4_3_enemy.high = m3_enemy.high & (valid.high >> 3) & (enemy.high >> 4);
-
-    // === Stage 9: Finalize Live3 & Rush3 (after jump4 filtering) ===
-
-    // === Stage 5: Live3/Rush3 Raw ===
-    Lines4 live3_raw_me, live3_raw_enemy;
-    live3_raw_me.low = (valid.low << 1) & m3_me.low & (valid.low >> 3);
-    live3_raw_enemy.low = (valid.low << 1) & m3_enemy.low & (valid.low >> 3);
-    live3_raw_me.high = (valid.high << 1) & m3_me.high & (valid.high >> 3);
-    live3_raw_enemy.high = (valid.high << 1) & m3_enemy.high & (valid.high >> 3);
-    
-    Lines4 live3_me, live3_enemy, rush3_me, rush3_enemy;
-    live3_me.low = live3_raw_me.low & ~(jump4_1_me.low << 2) & ~jump4_3_me.low;
-    live3_enemy.low = live3_raw_enemy.low & ~(jump4_1_enemy.low << 2) & ~jump4_3_enemy.low;
-    live3_me.high = live3_raw_me.high & ~(jump4_1_me.high << 2) & ~jump4_3_me.high;
-    live3_enemy.high = live3_raw_enemy.high & ~(jump4_1_enemy.high << 2) & ~jump4_3_enemy.high;
-
-    scores.me.low += (unsigned long long)POPCOUNT64(live3_me.low & 0xFFFFFFFF) * SCORE_LIVE_3;
-    scores.enemy.low += (unsigned long long)POPCOUNT64(live3_enemy.low & 0xFFFFFFFF) * SCORE_LIVE_3;
-    scores.me.low += ((unsigned long long)POPCOUNT64(live3_me.low >> 32) * SCORE_LIVE_3) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(live3_enemy.low >> 32) * SCORE_LIVE_3) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(live3_me.high & 0xFFFFFFFF) * SCORE_LIVE_3;
-    scores.enemy.high += (unsigned long long)POPCOUNT64(live3_enemy.high & 0xFFFFFFFF) * SCORE_LIVE_3;
-    scores.me.high += ((unsigned long long)POPCOUNT64(live3_me.high >> 32) * SCORE_LIVE_3) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(live3_enemy.high >> 32) * SCORE_LIVE_3) << 32;
-
-    Lines4 rush3_raw_me, rush3_raw_enemy;
-    rush3_raw_me.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3_me.low;
-    rush3_raw_enemy.low = ((valid.low << 1) ^ (valid.low >> 3)) & m3_enemy.low;
-    rush3_raw_me.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3_me.high;
-    rush3_raw_enemy.high = ((valid.high << 1) ^ (valid.high >> 3)) & m3_enemy.high;
-
-    rush3_me.low = rush3_raw_me.low & ~(jump4_1_me.low << 2) & ~jump4_3_me.low;
-    rush3_enemy.low = rush3_raw_enemy.low & ~(jump4_1_enemy.low << 2) & ~jump4_3_enemy.low;
-    rush3_me.high = rush3_raw_me.high & ~(jump4_1_me.high << 2) & ~jump4_3_me.high;
-    rush3_enemy.high = rush3_raw_enemy.high & ~(jump4_1_enemy.high << 2) & ~jump4_3_enemy.high;
-
-
-    scores.me.low += (unsigned long long)POPCOUNT64(rush3_me.low & 0xFFFFFFFF) * SCORE_RUSH_3;
-    scores.enemy.low += (unsigned long long)POPCOUNT64(rush3_enemy.low & 0xFFFFFFFF) * SCORE_RUSH_3;
-    scores.me.low += ((unsigned long long)POPCOUNT64(rush3_me.low >> 32) * SCORE_RUSH_3) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(rush3_enemy.low >> 32) * SCORE_RUSH_3) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(rush3_me.high & 0xFFFFFFFF) * SCORE_RUSH_3;
-    scores.enemy.high += (unsigned long long)POPCOUNT64(rush3_enemy.high & 0xFFFFFFFF) * SCORE_RUSH_3;
-    scores.me.high += ((unsigned long long)POPCOUNT64(rush3_me.high >> 32) * SCORE_RUSH_3) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(rush3_enemy.high >> 32) * SCORE_RUSH_3) << 32;
-
-    // === Stage 10: Score Jump4 ===
-    unsigned long long jump4_me_low = jump4_1_me.low | jump4_2_me.low | jump4_3_me.low;
-    unsigned long long jump4_enemy_low = jump4_1_enemy.low | jump4_2_enemy.low | jump4_3_enemy.low;
-    unsigned long long jump4_me_high = jump4_1_me.high | jump4_2_me.high | jump4_3_me.high;
-    unsigned long long jump4_enemy_high = jump4_1_enemy.high | jump4_2_enemy.high | jump4_3_enemy.high;
-    
-    scores.me.low += (unsigned long long)POPCOUNT64(jump4_me_low & 0xFFFFFFFF) * SCORE_RUSH_4;
-    scores.enemy.low += (unsigned long long)POPCOUNT64(jump4_enemy_low & 0xFFFFFFFF) * SCORE_RUSH_4;
-    scores.me.low += ((unsigned long long)POPCOUNT64(jump4_me_low >> 32) * SCORE_RUSH_4) << 32;
-    scores.enemy.low += ((unsigned long long)POPCOUNT64(jump4_enemy_low >> 32) * SCORE_RUSH_4) << 32;
-    scores.me.high += (unsigned long long)POPCOUNT64(jump4_me_high & 0xFFFFFFFF) * SCORE_RUSH_4;
-    scores.enemy.high += (unsigned long long)POPCOUNT64(jump4_enemy_high & 0xFFFFFFFF) * SCORE_RUSH_4;
-    scores.me.high += ((unsigned long long)POPCOUNT64(jump4_me_high >> 32) * SCORE_RUSH_4) << 32;
-    scores.enemy.high += ((unsigned long long)POPCOUNT64(jump4_enemy_high >> 32) * SCORE_RUSH_4) << 32;
+        *targets[i] = score_acc | (high_acc << 32);
+    }
 
     return scores;
 }
