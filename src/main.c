@@ -7,6 +7,7 @@
 #include "../include/rules.h"
 #include "../include/history.h"
 #include "../include/ai.h"
+#include "../include/start_helper.h"
 
 void printHelp() {
     printf("Usage: gomoku [options]\n");
@@ -127,6 +128,9 @@ int main(int argc, char *argv[]) {
         if (mode == MODE_PVE && game.currentPlayer == aiPlayer) {
             // AI move
             printf("AI is thinking...\n");
+            // First try opening helper (hardcoded joseki). If it returns 1 we placed a move already.
+            if (start_helper(&game)) continue;
+
             Position aiMove = getAIMove(&game);
             if (aiMove.row == -1 || aiMove.col == -1) {
                 printf("AI cannot move!\n");
