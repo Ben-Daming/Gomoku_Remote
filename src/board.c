@@ -124,7 +124,6 @@ void printBoard(const GameState *game) {
     //     printf("\n");
     // }
 
-    printf("The Point is: %d\n", evaluate(&(game->bitBoard)));
 }
 
 int makeMove(GameState *game, int row, int col) {

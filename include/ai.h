@@ -30,11 +30,11 @@ typedef struct {
 // --- Search Parameters ---
 #define SEARCH_DEPTH 10
 #define BEAM_WIDTH 11
-#define MAX_DEPTH 20
+#define MAX_DEPTH (SEARCH_DEPTH + 1)
 
 typedef struct {
     Position killer_moves[MAX_DEPTH][2];
-    long nodes_searched;
+    unsigned long long nodes_searched;
     
     // Thread-local board & eval state
     BitBoardState board;

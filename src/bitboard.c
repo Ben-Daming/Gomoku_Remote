@@ -72,7 +72,7 @@ void initBitBoard(BitBoardState *bitBoard) {
 
     // 2. Initialize Occupy to ~0 (All 1s = All Empty)
     for (int i = 0; i < BOARD_SIZE; i++) {
-        bitBoard->occupy[i] = (Line)~0;
+        bitBoard->occupy[i] = (Line)(~0) >> 1;
     }
 }
 

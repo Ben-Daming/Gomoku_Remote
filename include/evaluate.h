@@ -15,21 +15,23 @@
 #define BASE_4 (1 << (_SHIFT / 2))
 
 // 评分宏
+// 评分宏
 #define SCORE_FIVE           ((10000000) <<( _SHIFT))
 #define SCORE_LIVE_4         (((50000) << (_SHIFT)) + BASE_4)
 #define SCORE_RUSH_4         (((8000) << (_SHIFT)) + BASE_4)
-#define SCORE_LIVE_3         (((6000) << (_SHIFT)) + 1)
-#define SCORE_JUMP_LIVE_3    (((4000) << (_SHIFT)) + 1)
-#define SCORE_RUSH_3         (((700) << (_SHIFT)))
-#define SCORE_STRONG_LIVE_2  ((200) << (_SHIFT))
-#define SCORE_LIVE_2         ((100) << (_SHIFT))
-#define SCORE_RUSH_2         ((20) << (_SHIFT))
+#define SCORE_LIVE_3         (((7000) << (_SHIFT)) + 1)
+#define SCORE_JUMP_LIVE_3    (((6000) << (_SHIFT)) + 1)
+#define SCORE_RUSH_3         (((1500) << (_SHIFT)))
+#define SCORE_STRONG_LIVE_2  ((800) << (_SHIFT))
+#define SCORE_LIVE_2         ((400) << (_SHIFT))
+#define SCORE_RUSH_2         ((50) << (_SHIFT))
+
 
 // Evaluate a single line (15 bits)
 // me: Bitmask of current player's stones
 // enemy: Bitmask of opponent's stones
 // length: Effective length of the line (for diagonals)
-int evaluateLine(Line me, Line enemy, int length);
+//int evaluateLine(Line me, Line enemy, int length);
 
 // Evaluate two lines in parallel (Batching)
 // Packs two lines into a 64-bit integer to compute scores simultaneously

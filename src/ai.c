@@ -341,57 +341,51 @@ static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col
     }
 }
 
-// 排序辅助结构体
-typedef struct {
-    Position move;
-    int score;
-} ScoredMove;
-
 // Forward declarations
 static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, UndoInfo* undo);
 static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, const UndoInfo* undo);
 
-// 降序比较函数
-static int compareScoredMoves(const void* a, const void* b) {
-    const ScoredMove* sa = (const ScoredMove*)a;
-    const ScoredMove* sb = (const ScoredMove*)b;
-    return sb->score - sa->score; // 降序
-}
+// Helper: Sort moves based on heuristics using insertion sort
+// Order: Killer Moves > (MyScore + OpponentScore) (descending order)
+static void sortMoves(SearchContext* ctx, Position* moves, Position* sorted_moves, int count, int depth, Player player) {
+    int scores[225]; // Cache scores for sorted_moves to avoid re-evaluation
+    Player opponent = (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK;
 
-// Helper: Sort moves based on heuristics
-// Order: Killer Moves > Static Eval
-static void sortMoves(SearchContext* ctx, Position* moves, int count, int depth, Player player) {
-    ScoredMove scored_moves[225];
-    
     for (int i = 0; i < count; i++) {
-        int score = 0;
-        
-        // 1. Killer Moves
+        // 1. Calculate Score for current move
+        int score;
         if ((moves[i].row == ctx->killer_moves[depth][0].row && moves[i].col == ctx->killer_moves[depth][0].col) ||
             (moves[i].row == ctx->killer_moves[depth][1].row && moves[i].col == ctx->killer_moves[depth][1].col)) {
-            score = 90000000;
-        }
-        // 2. Static Evaluation
-        else {
+            score = INF;
+        } else {
             UndoInfo undo;
+            
+            // A. Evaluate My Move
             aiMakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
-            
-            // Score from the perspective of the player making the move
-            score = (player == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
-            
+            int my_score = (player == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
             aiUnmakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
+
+            // B. Evaluate Opponent's Move (Defense Value)
+            aiMakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, opponent, &undo);
+            int opp_score = (opponent == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
+            aiUnmakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, opponent, &undo);
+
+            // C. Combine: Attack + Defense
+            // If opp_score is high (e.g. they have a win), we MUST block.
+            score = my_score + opp_score;
+        }
+
+        // 2. Insert into sorted position directly
+        // We shift elements in both sorted_moves and scores arrays
+        int j = i - 1;
+        while (j >= 0 && scores[j] < score) {
+            sorted_moves[j + 1] = sorted_moves[j];
+            scores[j + 1] = scores[j];
+            j--;
         }
         
-        scored_moves[i].move = moves[i];
-        scored_moves[i].score = score;
-    }
-
-    // Quick Sort
-    qsort(scored_moves, count, sizeof(ScoredMove), compareScoredMoves);
-
-    // Copy back
-    for (int i = 0; i < count; i++) {
-        moves[i] = scored_moves[i].move;
+        sorted_moves[j + 1] = moves[i];
+        scores[j + 1] = score;
     }
 }
 
@@ -413,21 +407,23 @@ static int alphaBeta(SearchContext* ctx, int depth, int alpha, int beta, Player 
     if (count == 0) return 0; // Draw
 
     // 3. Sort Moves
-    sortMoves(ctx, moves, count, depth, player);
+    Position sorted_moves[BEAM_WIDTH];
+    sortMoves(ctx, moves, sorted_moves, count, depth, player);
+    
+    // Select top BEAM_WIDTH moves
+    int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
+   
 
     int best_score = -INF;
-    
-    // Beam Search: Limit the number of moves searched
-    int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
 
     for (int i = 0; i < limit; i++) {
         UndoInfo undo;
-        aiMakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
+        aiMakeMove(&ctx->board, &ctx->eval, sorted_moves[i].row, sorted_moves[i].col, player, &undo);
         ctx->nodes_searched++;
 
         int score = -alphaBeta(ctx, depth - 1, -beta, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
 
-        aiUnmakeMove(&ctx->board, &ctx->eval, moves[i].row, moves[i].col, player, &undo);
+        aiUnmakeMove(&ctx->board, &ctx->eval, sorted_moves[i].row, sorted_moves[i].col, player, &undo);
 
         if (score > best_score) {
             best_score = score;
@@ -439,9 +435,9 @@ static int alphaBeta(SearchContext* ctx, int depth, int alpha, int beta, Player 
         
         if (alpha >= beta) {
             // Update Killer Moves
-            if (moves[i].row != ctx->killer_moves[depth][0].row || moves[i].col != ctx->killer_moves[depth][0].col) {
+            if (sorted_moves[i].row != ctx->killer_moves[depth][0].row || sorted_moves[i].col != ctx->killer_moves[depth][0].col) {
                 ctx->killer_moves[depth][1] = ctx->killer_moves[depth][0];
-                ctx->killer_moves[depth][0] = moves[i];
+                ctx->killer_moves[depth][0] = sorted_moves[i];
             }
             break;
         }
@@ -470,50 +466,78 @@ Position getAIMove(const GameState *game) {
 
     Player me = game->currentPlayer;
     
-    // 3. Root Search (Fixed Depth)
-    int depth = SEARCH_DEPTH;
-    
+    // 3. Iterative Deepening Search
     Position moves[225];
     int count = generateMoves(&ctx.board, moves);
     if (count == 0) return (Position){7, 7}; // Should not happen
 
-    // Sort root moves too
-    sortMoves(&ctx, moves, count, depth, me);
-
-    int best_score = -INF;
     Position best_move = moves[0];
-    int alpha = -INF;
-    int beta = INF;
-    
-    // Beam Search at Root
-    int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
+    int best_score = -INF;
     UndoInfo undo;
-    for (int i = 0; i < limit; i++) {
-        aiMakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
+    
+    for (int depth = 1; depth <= SEARCH_DEPTH; depth++) {
+        // Sort root moves
+        Position sorted_moves[BEAM_WIDTH];
+        sortMoves(&ctx, moves, sorted_moves, count, depth, me);
+
+        // Move Ordering: Put best move from previous iteration first
+        if (depth > 1) {
+            for (int i = 0; i < count; i++) {
+                if (sorted_moves[i].row == best_move.row && sorted_moves[i].col == best_move.col) {
+                    // Swap with first
+                    Position temp = sorted_moves[0];
+                    sorted_moves[0] = sorted_moves[i];
+                    sorted_moves[i] = temp;
+                    break;
+                }
+            }
+        }
+
+        int current_best_score = -INF;
+        Position current_best_move = sorted_moves[0];
+        int alpha = -INF;
+        int beta = INF;
         
-        // Check if root move is forbidden (for Black)
-        if (me == PLAYER_BLACK && ctx.eval.total_score == -INF) {
-             printf("Root move (%d, %d) is FORBIDDEN. Skipping.\n", moves[i].row, moves[i].col);
-             aiUnmakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
-             continue;
-        }
+        // Beam Search at Root
+        int limit = (count > BEAM_WIDTH) ? BEAM_WIDTH : count;
+        for (int i = 0; i < limit; i++) {
+            aiMakeMove(&ctx.board, &ctx.eval, sorted_moves[i].row, sorted_moves[i].col, me, &undo);
+            
+            // Check if root move is forbidden (for Black)
+            if (me == PLAYER_BLACK && ctx.eval.total_score == -INF) {
+                 // printf("Root move (%d, %d) is FORBIDDEN. Skipping.\n", sorted_moves[i].row, sorted_moves[i].col);
+                 aiUnmakeMove(&ctx.board, &ctx.eval, sorted_moves[i].row, sorted_moves[i].col, me, &undo);
+                 continue;
+            }
+            // Check for immediate win at root
+            int current_val = (me == PLAYER_BLACK) ? ctx.eval.total_score : -ctx.eval.total_score;
+            if(current_val >= WIN_THRESHOLD){
+                aiUnmakeMove(&ctx.board, &ctx.eval, sorted_moves[i].row, sorted_moves[i].col, me, &undo);
+                return sorted_moves[i];
+            }
 
-        ctx.nodes_searched++;
+            ctx.nodes_searched++;
 
-        int score = -alphaBeta(&ctx, depth - 1, -beta, -alpha, (me == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+            int score = -alphaBeta(&ctx, depth - 1, -beta, -alpha, (me == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
 
-        // printf("Root move (%d, %d) score: %d\n", moves[i].row, moves[i].col, score);
+            aiUnmakeMove(&ctx.board, &ctx.eval, sorted_moves[i].row, sorted_moves[i].col, me, &undo);
 
-        aiUnmakeMove(&ctx.board, &ctx.eval, moves[i].row, moves[i].col, me, &undo);
-
-        if (score > best_score) {
-            best_score = score;
-            best_move = moves[i];
+            if (score > current_best_score) {
+                current_best_score = score;
+                current_best_move = sorted_moves[i];
+            }
+            
+            if (score > alpha) {
+                alpha = score;
+            }
         }
         
-        if (score > alpha) {
-            alpha = score;
-        }
+        best_move = current_best_move;
+        best_score = current_best_score;
+        // printf("Depth %d: Best Move (%d, %d), Score %d\n", depth, best_move.row, best_move.col, best_score);
+        
+        // Early exit if winning move found
+        if (best_score > WIN_THRESHOLD) break;
     }
     //trace best move
     printf("currently the score is: %lld\n", ctx.eval.total_score);
@@ -570,6 +594,6 @@ Position getAIMove(const GameState *game) {
             (int)ctx.eval.count_4[i][(i==0)?best_move.col:((i==1)?best_move.row:((i==2)?(best_move.row-best_move.col+BOARD_SIZE-1):(best_move.row+best_move.col)))]);
     }
     aiUnmakeMove(&ctx.board, &ctx.eval, best_move.row, best_move.col, me, &undo);
-    printf("AI selects move (%d, %d) with score %d after searching %ld nodes.\n", best_move.row, best_move.col, best_score, ctx.nodes_searched*1000);
+    printf("AI selects move (%d, %d) with score %d after searching %lld nodes.\n", best_move.row, best_move.col, best_score, ctx.nodes_searched);
     return best_move;
 }
