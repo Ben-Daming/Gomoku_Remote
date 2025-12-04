@@ -44,6 +44,7 @@ typedef struct {
     PlayerBitBoard white;
     Line occupy[BOARD_SIZE];     // 0 = 已被占据(黑或白), 1 = 空
     Line move_mask[BOARD_SIZE];  // 1 = 有效落子点(邻域), 0 = 无效
+    unsigned long long hash;     // Zobrist Hash
 } BitBoardState;
 
 struct HistoryNode;

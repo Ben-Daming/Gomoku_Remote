@@ -1,6 +1,8 @@
 #include "../include/ai.h"
 #include "../include/bitboard.h"
 #include "../include/evaluate.h"
+#include "../include/tt.h"
+#include "../include/zobrist.h"
 #include <string.h>
 #include <stdlib.h>
 #include<stdio.h>
@@ -16,6 +18,20 @@
 #define DIR_ROW 1
 #define DIR_DIAG1 2
 #define DIR_DIAG2 3
+
+// Helper: Adjust score for TT (remove depth dependency)
+static inline int scoreToTT(int score, int depth) {
+    if (score > WIN_THRESHOLD) return score + depth;
+    if (score < -WIN_THRESHOLD) return score - depth;
+    return score;
+}
+
+// Helper: Adjust score from TT (add depth dependency)
+static inline int scoreFromTT(int score, int depth) {
+    if (score > WIN_THRESHOLD) return score - depth;
+    if (score < -WIN_THRESHOLD) return score + depth;
+    return score;
+}
 
 // Helper: Get length of a line
 static inline int getLineLength(int dir, int idx) {
@@ -346,16 +362,16 @@ static void aiMakeMove(BitBoardState* board, EvalState* eval, int row, int col, 
 static void aiUnmakeMove(BitBoardState* board, EvalState* eval, int row, int col, Player player, const UndoInfo* undo);
 
 // Helper: Sort moves based on heuristics using insertion sort
-// Order: Killer Moves > (MyScore + OpponentScore) (descending order)
-static inline int sortMoves(SearchContext* ctx, Position* moves, Position* sorted_moves, Position best_move, int count, int depth, Player player) {
+// Order: Hash Move > Killer Moves > (MyScore + OpponentScore) (descending order)
+static inline int sortMoves(SearchContext* ctx, Position* moves, Position* sorted_moves, Position tt_move, int count, int depth, Player player) {
     int scores[BEAM_WIDTH + 1]; // Cache scores for sorted_moves to avoid re-evaluation
     int sorted_count = 0;
    
     for (int i = 0; i < count; i++) {
         // 1. Calculate Score for current move
         int score;
-        if((best_move.row != INVALID_POS.row)  && (moves[i].row == best_move.row) && (moves[i].col == best_move.col)){
-            score = INF + 1;
+        if((tt_move.row != INVALID_POS.row)  && (moves[i].row == tt_move.row) && (moves[i].col == tt_move.col)){
+            score = INF + 1; // Highest priority for Hash Move
         }
         else if ((moves[i].row == ctx->killer_moves[depth][0].row && moves[i].col == ctx->killer_moves[depth][0].col) ||
             (moves[i].row == ctx->killer_moves[depth][1].row && moves[i].col == ctx->killer_moves[depth][1].col)) {
@@ -393,11 +409,20 @@ static inline int sortMoves(SearchContext* ctx, Position* moves, Position* sorte
 
 // Alpha-Beta Search (Naive with Heuristics)
 static int alphaBeta(SearchContext* ctx, int depth, int max_depth, int alpha, int beta, Player player) {
+    // 0. Transposition Table Probe
+    int rem_depth = max_depth - depth;
+    int tt_val;
+    Position tt_move = INVALID_POS;
+    
+    if (tt_probe(ctx->board.hash, rem_depth, alpha, beta, &tt_val, &tt_move)) {
+        return scoreFromTT(tt_val, depth);
+    }
+
     // 1. Static Evaluation
     int current_score = (player == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
 
-    if (current_score > WIN_THRESHOLD) return current_score; // Win
-    if (current_score < -WIN_THRESHOLD) return current_score; // Loss
+    if (current_score > WIN_THRESHOLD) return current_score - depth; // Win
+    if (current_score < -WIN_THRESHOLD) return current_score + depth; // Loss
 
     if (depth >= max_depth) {
         return current_score;
@@ -410,10 +435,12 @@ static int alphaBeta(SearchContext* ctx, int depth, int max_depth, int alpha, in
 
     // 3. Sort Moves
     Position sorted_moves[BEAM_WIDTH + 1];
-    int limit = sortMoves(ctx, moves, sorted_moves, INVALID_POS, count, depth, player);
+    int limit = sortMoves(ctx, moves, sorted_moves, tt_move, count, depth, player);
     
 
     int best_score = -INF;
+    int original_alpha = alpha;
+    Position best_move = INVALID_POS;
 
     for (int i = 0; i < limit; i++) {
         UndoInfo undo;
@@ -426,6 +453,7 @@ static int alphaBeta(SearchContext* ctx, int depth, int max_depth, int alpha, in
 
         if (score > best_score) {
             best_score = score;
+            best_move = sorted_moves[i];
             
             if (score > alpha) {
                 alpha = score;
@@ -441,6 +469,16 @@ static int alphaBeta(SearchContext* ctx, int depth, int max_depth, int alpha, in
             break;
         }
     }
+
+    // 4. Save to Transposition Table
+    int flag = TT_FLAG_EXACT;
+    if (best_score <= original_alpha) {
+        flag = TT_FLAG_UPPERBOUND;
+    } else if (best_score >= beta) {
+        flag = TT_FLAG_LOWERBOUND;
+    }
+    
+    tt_save(ctx->board.hash, rem_depth, scoreToTT(best_score, depth), flag, best_move);
 
     return best_score;
 }
@@ -459,12 +497,28 @@ Position getAIMove(const GameState *game) {
     
     // Clone BitBoardState
     ctx.board = game->bitBoard;
-    
+
     // Initialize EvalState
     initEvalState(&ctx.board, &ctx.eval);
 
     Player me = game->currentPlayer;
     
+    // Initialize Zobrist Hash if not already set (assuming bitBoard.hash is maintained)
+    // If bitBoard.hash is 0, we calculate it.
+    if (ctx.board.hash == 0) {
+        ctx.board.hash = calculateZobristHash(&ctx.board, me);
+    }
+
+    // Initialize TT (if not already)
+    static int tt_initialized = 0;
+    if (!tt_initialized) {
+        initZobrist();
+        tt_init(64); // 64MB
+        tt_initialized = 1;
+    }
+    // tt_clear(); // Optional: Clear TT between moves? Usually keep it.
+    
+
     // 3. Iterative Deepening Search
     Position moves[225];
     int count = generateMoves(&ctx.board, moves);
@@ -479,37 +533,21 @@ Position getAIMove(const GameState *game) {
         Position sorted_moves[BEAM_WIDTH + 1] = {0};
         int limit;
 
-        // Move Ordering: Put best move from previous iteration first
-        if (depth > 2) {
-            limit = sortMoves(&ctx, moves, sorted_moves, best_move, count, 0, me);
-            // int i;
-            // for (i = 0; i < limit; i++) {
-            //     if (sorted_moves[i].row == best_move.row && sorted_moves[i].col == best_move.col) {
-            //         // Swap with first
-            //         Position temp = sorted_moves[0];
-            //         sorted_moves[0] = sorted_moves[i];
-            //         sorted_moves[i] = temp;
-            //         // printf("depth: %d, bestmove: (%d, %d), \
-            //         //         replaced : (%d, %d)\n", depth,
-            //         //         best_move.row, best_move.col,
-            //         //         temp.row, temp.col);
-            //         break;
-            //     }
-            // }
+        // Probe TT for root move
+        int tt_val;
+        Position tt_root_move = INVALID_POS;
+        // Note: At root, we want the best move from previous iteration (depth-2) or deeper.
+        // We probe with current depth to see if we already have a result (unlikely unless re-searching)
+        // But more importantly, we want the move.
+        // tt_probe might fail if depth doesn't match, but we want the move anyway.
+        // Our tt_probe returns move even if depth is insufficient?
+        // Let's check tt_probe implementation.
+        // Assuming tt_probe returns move if key matches.
+        tt_probe(ctx.board.hash, depth, -INF, INF, &tt_val, &tt_root_move);
 
-            /*上一层的最佳走法没排上
-            那就顶掉最后一个元素，然后把上层的best_score放到第一位
-            */
-            // if(limit == i){
-            //     for(int j = limit - 1; j > 0; j--){
-            //         sorted_moves[j] = sorted_moves[j-1];
-            //     }
-            //     sorted_moves[0] = best_move; 
-            // }
-        }
-        else {
-            limit = sortMoves(&ctx, moves, sorted_moves, INVALID_POS, count, 0, me);
-        }
+        // Move Ordering: Put best move from TT first
+        limit = sortMoves(&ctx, moves, sorted_moves, tt_root_move, count, 0, me);
+
         int current_best_score = -INF;
         Position current_best_move = sorted_moves[0];
         int alpha = -INF;

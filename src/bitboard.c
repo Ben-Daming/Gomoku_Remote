@@ -1,4 +1,5 @@
 #include "../include/bitboard.h"
+#include "../include/zobrist.h"
 #include <string.h> // For memset
 #include <stdlib.h> // For rand
 
@@ -74,6 +75,9 @@ void initBitBoard(BitBoardState *bitBoard) {
     for (int i = 0; i < BOARD_SIZE; i++) {
         bitBoard->occupy[i] = (Line)(~0) >> 1;
     }
+    
+    // 3. Initialize Hash
+    bitBoard->hash = 0; // Empty board hash is 0 (or calculateZobristHash if not empty)
 }
 
 void getMoveMask(const BitBoardState *bitBoard, Line* buffer) {
@@ -98,6 +102,10 @@ void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Li
     
     // Anti Diagonal: Index row + col, Bit row
     pBoard->diag2[row + col] |= (1 << MIN(row, 14 - col));
+
+    // 3. Update Zobrist Hash
+    bitBoard->hash ^= zobrist_table[row][col][player == PLAYER_BLACK ? 0 : 1];
+    bitBoard->hash ^= zobrist_player; // Switch turn hash
 
     // 3. Update Occupy Layer (1=Empty, 0=Occupied)
     bitBoard->occupy[col] &= BIT_SET(row);
@@ -124,10 +132,14 @@ void undoBitBoard(BitBoardState *bitBoard, int row, int col, Player player, cons
     pBoard->diag1[row - col + 14] &= ~(1 << MIN(row, col));
     pBoard->diag2[row + col] &= ~(1 << MIN(row, 14 - col));
 
-    // 2. Restore Occupy Layer (Set back to 1)
+    // 2. Restore Hash
+    bitBoard->hash ^= zobrist_table[row][col][player == PLAYER_BLACK ? 0 : 1];
+    bitBoard->hash ^= zobrist_player; // Switch turn hash back
+
+    // 3. Restore Occupy Layer (Set back to 1)
     bitBoard->occupy[col] |= ~BIT_SET(row);
 
-    // 3. Restore Neighborhood Layer
+    // 4. Restore Neighborhood Layer
     memcpy(bitBoard->move_mask, backup_mask, sizeof(Line) * BOARD_SIZE);
 }
 
