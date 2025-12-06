@@ -29,8 +29,8 @@ typedef struct {
 } UndoInfo;
 
 // --- Search Parameters ---
-#define SEARCH_DEPTH 10
-#define BEAM_WIDTH 11
+#define SEARCH_DEPTH 12
+#define BEAM_WIDTH 10
 #define MAX_DEPTH (SEARCH_DEPTH + 1)
 
 typedef struct {

@@ -414,9 +414,13 @@ static int alphaBeta(SearchContext* ctx, int depth, int max_depth, int alpha, in
     int tt_val;
     Position tt_move = INVALID_POS;
     
-    if (tt_probe(ctx->board.hash, rem_depth, alpha, beta, &tt_val, &tt_move)) {
+    int _loc_alpha = alpha;
+    int _loc_beta = beta;
+    if (tt_probe(ctx->board.hash, rem_depth, &_loc_alpha, &_loc_beta, &tt_val, &tt_move)) {
         return scoreFromTT(tt_val, depth);
     }
+    alpha = _loc_alpha;
+    beta = _loc_beta;
 
     // 1. Static Evaluation
     int current_score = (player == PLAYER_BLACK) ? ctx->eval.total_score : -ctx->eval.total_score;
@@ -447,19 +451,30 @@ static int alphaBeta(SearchContext* ctx, int depth, int max_depth, int alpha, in
         aiMakeMove(&ctx->board, &ctx->eval, sorted_moves[i].row, sorted_moves[i].col, player, &undo);
         ctx->nodes_searched++;
 
-        int score = -alphaBeta(ctx, depth + 1, max_depth, -beta, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+        int score;
+
+        if (i == 0) {
+            // Full window for first (PV) child
+            score = -alphaBeta(ctx, depth + 1, max_depth, -beta, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+        } else {
+            // Null-window search for non-PV nodes
+            score = -alphaBeta(ctx, depth + 1, max_depth, -alpha - 1, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+            // If it failed high, re-search with full window
+            if (score > alpha && score < beta) {
+                score = -alphaBeta(ctx, depth + 1, max_depth, -beta, -alpha, (player == PLAYER_BLACK) ? PLAYER_WHITE : PLAYER_BLACK);
+            }
+        }
 
         aiUnmakeMove(&ctx->board, &ctx->eval, sorted_moves[i].row, sorted_moves[i].col, player, &undo);
 
         if (score > best_score) {
             best_score = score;
             best_move = sorted_moves[i];
-            
             if (score > alpha) {
                 alpha = score;
             }
         }
-        
+
         if (alpha >= beta) {
             // Update Killer Moves
             if (sorted_moves[i].row != ctx->killer_moves[depth][0].row || sorted_moves[i].col != ctx->killer_moves[depth][0].col) {
@@ -543,7 +558,10 @@ Position getAIMove(const GameState *game) {
         // Our tt_probe returns move even if depth is insufficient?
         // Let's check tt_probe implementation.
         // Assuming tt_probe returns move if key matches.
-        tt_probe(ctx.board.hash, depth, -INF, INF, &tt_val, &tt_root_move);
+        {
+            int _ra = -INF, _rb = INF;
+            tt_probe(ctx.board.hash, depth, &_ra, &_rb, &tt_val, &tt_root_move);
+        }
 
         // Move Ordering: Put best move from TT first
         limit = sortMoves(&ctx, moves, sorted_moves, tt_root_move, count, 0, me);

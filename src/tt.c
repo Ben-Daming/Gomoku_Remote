@@ -50,7 +50,7 @@ void tt_clear() {
     }
 }
 
-int tt_probe(uint64_t key, int rem_depth, int alpha, int beta, int* out_val, Position* out_move) {
+int tt_probe(uint64_t key, int rem_depth, int* alpha, int* beta, int* out_val, Position* out_move) {
     if (!tt_table) return 0;
 
     uint64_t index = key & tt_mask;
@@ -63,19 +63,38 @@ int tt_probe(uint64_t key, int rem_depth, int alpha, int beta, int* out_val, Pos
         // Check if entry is usable for cutoff
         if (entry->rem_depth >= rem_depth) {
             int score = entry->value;
-            
-            // Adjust mate scores if necessary (omitted for now, assuming raw scores)
+            // Adjust mate scores if necessary (omitted for now)
 
             if (entry->flag == TT_FLAG_EXACT) {
                 *out_val = score;
                 return 1;
             }
-            if (entry->flag == TT_FLAG_LOWERBOUND && score >= beta) {
-                *out_val = score;
-                return 1;
+
+            if (entry->flag == TT_FLAG_LOWERBOUND) {
+                // True score >= entry->value
+                if (score >= *beta) {
+                    *out_val = score; // cutoff
+                    return 1;
+                }
+                if (score > *alpha) {
+                    *alpha = score; // tighten alpha
+                }
             }
-            if (entry->flag == TT_FLAG_UPPERBOUND && score <= alpha) {
-                *out_val = score;
+
+            if (entry->flag == TT_FLAG_UPPERBOUND) {
+                // True score <= entry->value
+                if (score <= *alpha) {
+                    *out_val = score; // cutoff
+                    return 1;
+                }
+                if (score < *beta) {
+                    *beta = score; // tighten beta
+                }
+            }
+
+            // After tightening, check for immediate cutoff
+            if (*alpha >= *beta) {
+                *out_val = *alpha; // or *beta: they are equal or alpha > beta
                 return 1;
             }
         }

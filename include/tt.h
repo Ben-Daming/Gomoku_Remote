@@ -43,7 +43,11 @@ void tt_clear();
 // out_move: The best move from TT (always returned if present, regardless of depth)
 // alpha, beta: Current search bounds
 // rem_depth: Current remaining depth
-int tt_probe(uint64_t key, int rem_depth, int alpha, int beta, int* out_val, Position* out_move);
+// tt_probe now accepts pointers to alpha/beta so it can tighten the window
+// based on TT bounds. It updates *alpha and/or *beta if entry provides
+// a tighter bound but does not force a cutoff. Returns 1 if the entry
+// is usable to return a score immediately (cutoff or exact).
+int tt_probe(uint64_t key, int rem_depth, int* alpha, int* beta, int* out_val, Position* out_move);
 
 // Save to TT
 void tt_save(uint64_t key, int rem_depth, int value, int flag, Position best_move);
