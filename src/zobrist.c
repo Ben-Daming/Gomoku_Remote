@@ -5,7 +5,7 @@
 uint64_t zobrist_table[BOARD_SIZE][BOARD_SIZE][2];
 uint64_t zobrist_player;
 
-// Simple 64-bit random number generator
+// 简单的64位随机数生成器
 static uint64_t rand64() {
     uint64_t r1 = (uint64_t)rand();
     uint64_t r2 = (uint64_t)rand();
@@ -15,24 +15,25 @@ static uint64_t rand64() {
 }
 
 void initZobrist() {
-    srand(123456789); // Fixed seed for reproducibility
+    srand(123456789); // 固定种子便于debug
 
     for (int i = 0; i < BOARD_SIZE; i++) {
         for (int j = 0; j < BOARD_SIZE; j++) {
-            zobrist_table[i][j][0] = rand64(); // Black
-            zobrist_table[i][j][1] = rand64(); // White
+            zobrist_table[i][j][0] = rand64(); // 黑子
+            zobrist_table[i][j][1] = rand64(); // 白子
         }
     }
-    zobrist_player = rand64();
+    zobrist_player = rand64(); // 当前玩家
 }
 
+
+// 遍历棋盘以计算初始哈希值
+// 注意：此方法较慢，仅在根节点或初始化时使用
 uint64_t calculateZobristHash(const BitBoardState* board, Player currentPlayer) {
     uint64_t hash = 0;
     
-    // Iterate over board to calculate initial hash
-    // Note: This is slow, only used at root or initialization
     for (int i = 0; i < BOARD_SIZE; i++) {
-        // Check Black
+        // 检查黑子
         Line b_row = board->black.rows[i];
         for (int j = 0; j < BOARD_SIZE; j++) {
             if ((b_row >> j) & 1) {
@@ -40,7 +41,7 @@ uint64_t calculateZobristHash(const BitBoardState* board, Player currentPlayer) 
             }
         }
         
-        // Check White
+        // 检查白子
         Line w_row = board->white.rows[i];
         for (int j = 0; j < BOARD_SIZE; j++) {
             if ((w_row >> j) & 1) {

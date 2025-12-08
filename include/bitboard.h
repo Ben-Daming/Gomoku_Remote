@@ -3,23 +3,24 @@
 
 #include "types.h"
 
-// Initialize the BitBoard system
+// 初始化位棋盘
 void initBitBoard(BitBoardState *bitBoard);
 
-// Get the current move mask (neighborhood of occupied cells)
-void getMoveMask(const BitBoardState *bitBoard, Line* buffer);
+//弃用
+// // 获取当前落子掩码
+// void getMoveMask(const BitBoardState *bitBoard, Line* buffer);
 
-// Update the BitBoard after a move
-// backup_mask: [OUT] Buffer to store the previous move_mask (size: BOARD_SIZE * sizeof(Line))
+// 落子后更新 BitBoard
+// backup_mask: [OUT] 用于存储之前 move_mask 的缓冲区（大小：BOARD_SIZE * sizeof(Line)）
 void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Line* backup_mask);
 
-// Undo a move on the BitBoard
-// backup_mask: [IN] The move_mask stored during update
+// 撤销 BitBoard 上的一步落子
+// backup_mask: [IN] 在更新时存储的 move_mask
 void undoBitBoard(BitBoardState *bitBoard, int row, int col, Player player, const Line* backup_mask);
 
-// Generate all valid moves based on move_mask
-// moves: [OUT] Buffer to store generated moves (max 225)
-// Returns: Number of moves generated
+// 根据 move_mask 生成所有合法落子
+// moves: [OUT] 用于存储合法的落子点（最多 225 个）
+// 返回值：生成的落子数量
 int generateMoves(const BitBoardState *bitBoard, Position *moves);
 
-#endif // BITBOARD_H
+#endif

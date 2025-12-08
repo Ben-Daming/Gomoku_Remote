@@ -26,42 +26,42 @@
 #define SCORE_LIVE_2         ((400) << (_SHIFT))
 #define SCORE_RUSH_2         ((50) << (_SHIFT))
 
-
-// Evaluate a single line (15 bits)
-// me: Bitmask of current player's stones
-// enemy: Bitmask of opponent's stones
-// length: Effective length of the line (for diagonals)
+//弃用api
+// 评估一条线（15位）
+// me: 当前玩家棋子的位掩码
+// enemy: 对手棋子的位掩码
+// length: 该线的有效长度（用于对角线）
 //int evaluateLine(Line me, Line enemy, int length);
 
-// Evaluate two lines in parallel (Batching)
-// Packs two lines into a 64-bit integer to compute scores simultaneously
-// Returns a packed 64-bit integer: [Score2 (32 bits) | Score1 (32 bits)]
+// 并行评估两条线
+// 将两条线打包到一个64位整数中以同时计算分数
+// 返回一个打包的64位整数: [Score2（32位）| Score1（32位）]
 unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Line enemy2, int len2);
 
-// Structure to hold 4 packed lines (128 bits total)
-// low:  [Line 2 (32 bits) | Line 1 (32 bits)]
-// high: [Line 4 (32 bits) | Line 3 (32 bits)]
+// 存储4条打包线的结构体（共128位）
+// low:  [第2条线（32位）| 第1条线（32位）]
+// high: [第4条线（32位）| 第3条线（32位）]
 typedef struct {
     unsigned long long low;
     unsigned long long high;
 } Lines4;
 
-// Structure to hold scores for both players
+// 256位结构体
 typedef struct {
     Lines4 me;
     Lines4 enemy;
 } DualLines;
 
-// Evaluate four lines in parallel for both players
-// Returns the packed scores of all 4 lines for both players
+// 并行评估双方的四条线
+// 返回双方所有4条线的打包分数
 DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask);
 
-// Evaluate the entire board for a specific player
-// Returns the sum of scores for all lines (Vertical, Horizontal, Diagonals)
+// 评估整个棋盘上某一玩家的分数
+// 返回所有线（纵向、横向、对角线）的分数总和
 int evaluateBoard(const BitBoardState *bitBoard, Player player);
 
-// Calculate the total score (Black Score - White Score)
-// Positive means Black advantage, Negative means White advantage
+// 计算总分（黑方分数 - 白方分数）
+// 正数表示黑方优势，负数表示白方优势
 int evaluate(const BitBoardState *bitBoard);
 
 #endif

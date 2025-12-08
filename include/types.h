@@ -31,12 +31,12 @@ typedef struct {
 
 typedef unsigned short Line;
 
-// Structure to hold bitboards for different directions for a single player
+// 每个玩家的88条不同基下的位棋盘表示
 typedef struct {
-    Line cols[BOARD_SIZE];          // Vertical (Index: col, Bit: row)
-    Line rows[BOARD_SIZE];          // Horizontal (Index: row, Bit: col)
-    Line diag1[BOARD_SIZE * 2];     // Main Diagonal (Index: row - col + 14, Bit: col)
-    Line diag2[BOARD_SIZE * 2];     // Anti Diagonal (Index: row + col, Bit: row)
+    Line cols[BOARD_SIZE];          // (Index: col, Bit: row)
+    Line rows[BOARD_SIZE];          // (Index: row, Bit: col)
+    Line diag1[BOARD_SIZE * 2];     // (Index: row - col + 14, Bit: col)
+    Line diag2[BOARD_SIZE * 2];     // (Index: row + col, Bit: row)
 } PlayerBitBoard;
 
 typedef struct {

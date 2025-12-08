@@ -1,12 +1,13 @@
 #include "../include/evaluate.h"
 #include <stdlib.h>
 
-// Helper macro for population count (number of set bits)
+// Helper macro 
 #define POPCOUNT(x) __builtin_popcount(x)
 #define POPCOUNT64(x) __builtin_popcountll(x)
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 
-// --- Core Evaluation Kernel (Bitwise SWAR) ---
+//弃用api
+// // --- 评估函数 ---
 
 // int evaluateLine(Line me, Line enemy, int length) {
 //     int score = 0;
@@ -78,26 +79,26 @@
 //     return score;
 // }
 
-// Parallel Evaluation of 4 Lines (Vectorized via Array Packing)
-// This approach packs the 4 lines (Me Low/High, Enemy Low/High) into arrays
-// to allow the compiler to vectorize the bitwise logic using AVX2/SIMD.
-// POPCOUNT is performed sequentially afterwards as it is a scalar instruction.
+// 并行评估4条线（通过数组打包进行向量化）
+// 这种方法将4条线（我方低/高，敌方低/高）打包到数组中
+// 允许编译器使用AVX2/SIMD进行位运算向量化。
+// POPCOUNT随后作为标量指令顺序执行。
 DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     DualLines scores = {{0, 0}, {0, 0}};
 
-    // 1. Pre-calculate valid (Interaction between me and enemy, not suitable for unified SIMD loop)
+    // 1. 预计算有效位（我方与敌方的交互，不适合统一SIMD循环）
     unsigned long long valid_low = ~(me.low | enemy.low) & mask.low;
     unsigned long long valid_high = ~(me.high | enemy.high) & mask.high;
 
-    // 2. Prepare Input Arrays (Data Packing)
-    // Layout: [Me_Low, Me_High, Enemy_Low, Enemy_High]
+    // 2. 打包数据
+    // 布局: [Me_Low, Me_High, Enemy_Low, Enemy_High]
     unsigned long long inputs[4] = {me.low, me.high, enemy.low, enemy.high};
     
-    // Prepare Valid Masks
-    // Layout: [valid_low, valid_high, valid_low, valid_high]
+    // 准备有效掩码
+    // 布局: [valid_low, valid_high, valid_low, valid_high]
     unsigned long long valids[4] = {valid_low, valid_high, valid_low, valid_high};
 
-    // Output Arrays for Features
+    //要用的暂存数组
     unsigned long long res_m5[4];
     unsigned long long res_live2[4], res_rush2[4], res_strong_live2[4];
     unsigned long long res_live_jump3[4];
@@ -106,19 +107,19 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     unsigned long long res_jump4[4];
 
     // ==========================================================
-    // 3. Core Vectorized Loop (The SIMD Loop)
-    // Compiler should unroll this and use AVX2 (4x64-bit)
+    // 3. SIMD循环
+    // 编译器应展开此循环并使用AVX2（4x64位），否则效率会低下！
     // ==========================================================
     #pragma omp simd
     for (int i = 0; i < 4; i++) {
         unsigned long long my_line = inputs[i];
         unsigned long long valid = valids[i];
 
-        // Shared masks (Calculated locally to allow vectorization)
+        // 共享掩码（本地计算以便向量化）
         unsigned long long mask_0xxxx0 = (valid >> 4) & (valid << 1);
         unsigned long long mask_axxxxb = (valid >> 4) ^ (valid << 1);
 
-        // --- Stage 1: Basic Connections ---
+        // ---基础连子 ---
         unsigned long long m2 = my_line & (my_line >> 1);
         unsigned long long m3 = m2 & (m2 >> 1);
         unsigned long long m4 = m3 & (m3 >> 1);
@@ -126,35 +127,35 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
         
         res_m5[i] = m5;
 
-        // --- Stage 2: Refine m2 ---
+        // --- 精炼连二 ---
         m2 &= ~(m3 | (m3 << 1));
 
-        // --- Stage 3: Live 2 & Rush 2 ---
+        // --- 活二与冲二 ---
         unsigned long long live2 = (valid << 1) & m2 & (valid >> 2);
         unsigned long long rush2 = m2 & ((valid << 1) ^ (valid >> 2));
         
         res_live2[i] = live2;
         res_rush2[i] = rush2;
 
-        // --- Stage 4: Strong Live 2 ---
+        // --- 强活二 ---
         unsigned long long strong_live2 = (valid << 2) & live2 & (valid >> 3);
         res_strong_live2[i] = strong_live2;
 
-        // --- Stage 6: Jump 3 ---
+        // --- 跳三 ---
         unsigned long long jump3_a = my_line & (m2 >> 2) & (valid >> 1);
         unsigned long long jump3_b = (my_line >> 3) & m2 & (valid >> 2);
         unsigned long long live_jump3 = (jump3_a | jump3_b) & mask_0xxxx0;
         
         res_live_jump3[i] = live_jump3;
 
-        // --- Stage 7: Live 4 & Rush 4 ---
+        // --- 活四与冲四 ---
         unsigned long long live4 = m4 & mask_0xxxx0;
         unsigned long long rush4 = m4 & mask_axxxxb;
         
         res_live4[i] = live4;
         res_rush4[i] = rush4;
 
-        // --- Stage 8: Jump 4 ---
+        // --- 跳四 ---
         unsigned long long jump4_1 = my_line & (valid >> 1) & (m3 >> 2);
         unsigned long long jump4_2 = m2 & (valid >> 2) & (m2 >> 3);
         unsigned long long jump4_3 = m3 & (valid >> 3) & (my_line >> 4);
@@ -162,7 +163,7 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
         
         res_jump4[i] = jump4;
 
-        // --- Stage 9: Live 3 & Rush 3 Finalize ---
+        // --- 最终活三与冲三 ---
         unsigned long long live3_raw = (valid << 1) & m3 & (valid >> 3);
         unsigned long long rush3_raw = ((valid << 1) ^ (valid >> 3)) & m3;
         
@@ -176,11 +177,11 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     }
 
     // ==========================================================
-    // 4. Scalar Reduction (Scoring)
+    // 标量计分，没有256位的POPCOUNT指令
     // ==========================================================
 
-    // Check for Five (Early Exit)
-    // Indices: 0=MeLow, 1=MeHigh, 2=EnLow, 3=EnHigh
+    // 检查五连
+    // 索引: 0=我方低, 1=我方高, 2=敌方低, 3=敌方高
     if (res_m5[0] | res_m5[1]) {
         if (res_m5[0] & 0xFFFFFFFFULL) scores.me.low |= (unsigned long long)SCORE_FIVE;
         if (res_m5[0] & 0xFFFFFFFF00000000ULL) scores.me.low |= ((unsigned long long)SCORE_FIVE << 32);
@@ -196,9 +197,10 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
         return scores;
     }
 
-    // Accumulate Scores
+    // 累加分数
     unsigned long long* targets[4] = {&scores.me.low, &scores.me.high, &scores.enemy.low, &scores.enemy.high};
     
+    //8*9 = 72次POPCOUNT64
     for (int i = 0; i < 4; i++) {
         unsigned long long score_acc = 0;
         unsigned long long high_acc = 0;
@@ -225,28 +227,26 @@ DualLines evaluateLines4(Lines4 me, Lines4 enemy, Lines4 mask) {
     return scores;
 }
 
-// --- Board Scanning Helpers ---
+// --- ai 初始化 Helpers ---
 
-// Parallel Evaluation of 2 Lines (Batching)
-// Stride = 32 bits (15 data + 17 guard) to fit 2 lines in 64 bits
-// Line 1 at bit 0, Line 2 at bit 32
+// 一次并行算两lines
+// 第1条线位于位0，第2条线位于位32
 unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Line enemy2, int len2) {
     unsigned long long score = 0;
     
-    // Pack inputs into 64-bit integers
-    // Line 1: Bits 0-14
-    // Line 2: Bits 32-46
+    // 打包输入到64位整数
+    // 第1条线: 位0-14
+    // 第2条线: 位32-46
     unsigned long long me = (unsigned long long)me1 | ((unsigned long long)me2 << 32);
     unsigned long long enemy = (unsigned long long)enemy1 | ((unsigned long long)enemy2 << 32);
     
-    // Create masks
+    // 掩码
     unsigned long long mask1 = (1ULL << len1) - 1;
     unsigned long long mask2 = (1ULL << len2) - 1;
     unsigned long long mask = mask1 | (mask2 << 32);
     
     unsigned long long valid = ~(me | enemy) & mask;
 
-    // --- Parallel Logic (Identical to evaluateLine but 64-bit) ---
     
     //连2，连3，连4，连5
     unsigned long long m2 = me & (me >> 1); 
@@ -254,9 +254,8 @@ unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Lin
     unsigned long long m4 = m3 & (m3 >> 1);
     unsigned long long m5 = m4 & (m4 >> 1);
 
-    // Check for Win immediately (Any m5 non-zero)
     if (m5) {
-        // If m5 has bits in lower 32, Line 1 wins. If upper 32, Line 2 wins.
+        // 如果m5在低32位有位，表示第1条线获胜；如果在高32位，表示第2条线获胜。
         unsigned long long win_score = 0;
         if (m5 & 0xFFFFFFFFULL) win_score |= (unsigned long long)SCORE_FIVE;
         if (m5 & 0xFFFFFFFF00000000ULL) win_score |= ((unsigned long long)SCORE_FIVE << 32);
@@ -325,7 +324,7 @@ unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Lin
     score += (unsigned long long)POPCOUNT(rush3 & 0xFFFFFFFF) * SCORE_RUSH_3;
     score += ((unsigned long long)POPCOUNT(rush3 >> 32) * SCORE_RUSH_3) << 32;
 
-    // Score Jump 4 (Rush 4 equivalent)
+    // 计分跳四
     unsigned long long jump4 = jump4_1 | jump4_2 | jump4_3;
     score += (unsigned long long)POPCOUNT(jump4 & 0xFFFFFFFF) * SCORE_RUSH_4;
     score += ((unsigned long long)POPCOUNT(jump4 >> 32) * SCORE_RUSH_4) << 32;
@@ -333,26 +332,8 @@ unsigned long long evaluateLines2(Line me1, Line enemy1, int len1, Line me2, Lin
     return score;
 }
 
-// --- Board Scanning Helpers ---
-// Removed: getRow, getMainDiag, getAntiDiag are no longer needed
-// as BitBoardState now maintains pre-calculated arrays for all directions.
-
-// --- Full Board Evaluation ---
-
-
-// int checkForbidden(int score) {
-//     if (IS_FORBIDDEN_44(score)) return FORBIDDEN_44;
-//     if (IS_FORBIDDEN_33(score)) return FORBIDDEN_33;
-//     return FORBIDDEN_NONE;
-// }
-
-
-// --- Board Scanning Helpers ---
-// Removed: getRow, getMainDiag, getAntiDiag are no longer needed
-// as BitBoardState now maintains pre-calculated arrays for all directions.
-
-// --- Full Board Evaluation ---
-
+// 弃用api
+// // 总分初始化api
 // int evaluateBoard(const BitBoardState *bitBoard, Player player) {
 //     int total_score = 0;
 //     const PlayerBitBoard *my_board = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;

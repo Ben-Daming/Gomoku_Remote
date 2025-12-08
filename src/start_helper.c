@@ -4,12 +4,11 @@
 #include "../include/history.h"
 #include <stdio.h>
 
-// Ported and adapted from hardcode_beginning.c
-// This module implements some opening josekis and tries to place an AI move
-// during first few rounds if a known opening is detected.
+/*
+    这个模块是硬编码开局常用的定式，移植自https://github.com/Squareless-XD/2022Fall-UCAS-C-Gomoku
+*/
 
 static int record_position(GameState *game, int round, Player player_turn, int r, int c) {
-    // Only record if it's the player's turn; check if we can play here
     int valid = checkValidMove(game, r, c);
     if (valid != VALID_MOVE) return 0;
     int res = makeMove(game, r, c);
@@ -20,7 +19,6 @@ int start_helper(GameState *game) {
     int round = game->moveCount + 1; // 1-based
     Player player_turn = game->currentPlayer;
 
-    // Helper shortcuts
     CellState (*inner)[BOARD_SIZE] = (CellState (*)[BOARD_SIZE])game->board;
     int row_now_global = game->lastMove.row;
     int col_now_global = game->lastMove.col;
@@ -240,5 +238,5 @@ int start_helper(GameState *game) {
     else
         return 0;
 
-    return 0; // fallback
+    return 0; 
 }
