@@ -5,7 +5,9 @@
 
 void initGame(GameState *game, GameMode mode, RuleType rule);
 void printBoard(const GameState *game);
-int makeMove(GameState *game, int row, int col); // Returns 1 if success, 0 if fail
+
+//1 if ok, else error
+int makeMove(GameState *game, int row, int col); 
 int isBoardFull(const GameState *game);
 
 #endif

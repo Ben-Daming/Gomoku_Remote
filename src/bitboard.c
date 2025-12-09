@@ -1,24 +1,17 @@
 #include "../include/bitboard.h"
-#include <string.h> // For memset
-#include <stdlib.h> // For rand
+#include "../include/zobrist.h"
+#include <string.h> 
+#include <stdlib.h> 
 
-// Zobrist Table: [Player][Row][Col]
-// Player 0 is unused (EMPTY), but we map Player 1 (Black) -> 0, Player 2 (White) -> 1
-static unsigned long long zobrist_table[2][BOARD_SIZE][BOARD_SIZE];
-
-// Helper macro for absolute value
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
-// Helper macro for bit set (Standard Bit Order: Row 0 = Bit 0)
-// Returns a mask with the 'row'-th bit set to 0, others to 1.
+// 返回一个掩码，其中第'row'位为0，其他位为1。
 #define BIT_SET(row) (~(1 << (row)))
 
-// Neighborhood Masks (5x5 area)
-// Optimized for Standard Bit Order (Row 0 = Bit 0)
-// Using Symmetric 5x5 Box for all distances to ensure no potential connections are missed.
-// bit_move_set[row][0]: Mask for the same column
-// bit_move_set[row][1]: Mask for adjacent columns (Dist 1)
-// bit_move_set[row][2]: Mask for adjacent columns (Dist 2)
+// 邻域掩码（5x5区域）
+// bit_move_set[row][0]：同一列的掩码
+// bit_move_set[row][1]：相邻列（距离1）的掩码
+// bit_move_set[row][2]：相邻列（距离2）的掩码
 const Line bit_move_set[BOARD_SIZE][3] = {
 {0b0000000000000111, 
  0b0000000000000011, 
@@ -66,67 +59,57 @@ const Line bit_move_set[BOARD_SIZE][3] = {
  0b0110000000000000,
  0b0101000000000000}  
 };
-// --- Public API Implementation ---
 
-void initZobrist() {
-    for (int p = 0; p < 2; p++) {
-        for (int i = 0; i < BOARD_SIZE; i++) {
-            for (int j = 0; j < BOARD_SIZE; j++) {
-                unsigned long long r1 = (unsigned long long)rand();
-                unsigned long long r2 = (unsigned long long)rand();
-                unsigned long long r3 = (unsigned long long)rand();
-                unsigned long long r4 = (unsigned long long)rand();
-                zobrist_table[p][i][j] = r1 | (r2 << 16) | (r3 << 32) | (r4 << 48);
-            }
-        }
-    }
-}
+// --- API ---
 
 void initBitBoard(BitBoardState *bitBoard) {
-    // 1. Initialize Black/White/MoveMask to 0
+    // 初始化黑子/白子/可落子掩码为0
     memset(&bitBoard->black, 0, sizeof(bitBoard->black));
     memset(&bitBoard->white, 0, sizeof(bitBoard->white));
     memset(bitBoard->move_mask, 0, sizeof(bitBoard->move_mask));
 
-    // 2. Initialize Occupy to ~0 (All 1s = All Empty)
+    // 初始化占位层为~0（全1表示全空）
     for (int i = 0; i < BOARD_SIZE; i++) {
-        bitBoard->occupy[i] = (Line)~0;
+        bitBoard->occupy[i] = (Line)(~0) >> 1;
     }
-
-    // 3. Initialize Hash
-    bitBoard->hash = 0;
+    
+    // 初始化哈希值
+    bitBoard->hash = 0; 
 }
 
-void getMoveMask(const BitBoardState *bitBoard, Line* buffer) {
-    memcpy(buffer, bitBoard->move_mask, sizeof(bitBoard->move_mask));
-}
+//弃用
+// void getMoveMask(const BitBoardState *bitBoard, Line* buffer) {
+//     // 获取当前掩码
+//     memcpy(buffer, bitBoard->move_mask, sizeof(bitBoard->move_mask));
+// }
 
 void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Line* backup_mask) {
-    // 1. Fast Backup of move_mask
+    // 1. 快速备份可落子掩码
     memcpy(backup_mask, bitBoard->move_mask, sizeof(Line) * BOARD_SIZE);
 
-    // 2. Update Hash
-    bitBoard->hash ^= zobrist_table[player - 1][row][col];
-
-    // 3. Update Color Layers (4 Directions)
+    // 2. 更新颜色层（4个方向）
     PlayerBitBoard *pBoard = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;
     
-    // Vertical: Index col, Bit row
+    // 垂直方向：索引为col，位为row
     pBoard->cols[col] |= (1 << row);
     
-    // Horizontal: Index row, Bit col
+    // 水平方向：索引为row，位为col
     pBoard->rows[row] |= (1 << col);
     
-    // Main Diagonal: Index row - col + 14, Bit col
+    // 主对角线：索引为row - col + 14，位为MIN(row, col)
     pBoard->diag1[row - col + 14] |= (1 << MIN(row, col));
     
-    // Anti Diagonal: Index row + col, Bit row
+    // 副对角线：索引为row + col，位为MIN(row, 14 - col)
     pBoard->diag2[row + col] |= (1 << MIN(row, 14 - col));
 
-    // 3. Update Occupy Layer (1=Empty, 0=Occupied)
+    // 3. 更新Zobrist哈希值
+    bitBoard->hash ^= zobrist_table[row][col][player == PLAYER_BLACK ? 0 : 1];
+    bitBoard->hash ^= zobrist_player; // 切换回合哈希
+
+    // 3. 更新占位层（1=空，0=已占）
     bitBoard->occupy[col] &= BIT_SET(row);
 
-    // 4. Update Neighborhood Layer (Move Mask)
+    // 4. 更新邻域层（可落子掩码）
     int start_col = (col - 2 < 0) ? 0 : col - 2;
     int end_col = (col + 2 >= BOARD_SIZE) ? BOARD_SIZE - 1 : col + 2;
 
@@ -134,16 +117,13 @@ void updateBitBoard(BitBoardState *bitBoard, int row, int col, Player player, Li
         int dist = ABS(c - col);
         bitBoard->move_mask[c] |= bit_move_set[row][dist];
         
-        // Only keep empty spots
+        // 只保留空位
         bitBoard->move_mask[c] &= bitBoard->occupy[c];
     }
 }
 
 void undoBitBoard(BitBoardState *bitBoard, int row, int col, Player player, const Line* backup_mask) {
-    // 1. Restore Hash
-    bitBoard->hash ^= zobrist_table[player - 1][row][col];
-
-    // 2. Restore Color Layers (4 Directions)
+    // 1. 恢复颜色层（4个方向）
     PlayerBitBoard *pBoard = (player == PLAYER_BLACK) ? &bitBoard->black : &bitBoard->white;
     
     pBoard->cols[col] &= ~(1 << row);
@@ -151,27 +131,31 @@ void undoBitBoard(BitBoardState *bitBoard, int row, int col, Player player, cons
     pBoard->diag1[row - col + 14] &= ~(1 << MIN(row, col));
     pBoard->diag2[row + col] &= ~(1 << MIN(row, 14 - col));
 
-    // 2. Restore Occupy Layer (Set back to 1)
+    // 2. 恢复哈希值
+    bitBoard->hash ^= zobrist_table[row][col][player == PLAYER_BLACK ? 0 : 1];
+    bitBoard->hash ^= zobrist_player; // 回退回合哈希
+
+    // 3. 恢复占位层（重新设为1）
     bitBoard->occupy[col] |= ~BIT_SET(row);
 
-    // 3. Restore Neighborhood Layer
+    // 4. 恢复邻域层
     memcpy(bitBoard->move_mask, backup_mask, sizeof(Line) * BOARD_SIZE);
 }
 
 int generateMoves(const BitBoardState *bitBoard, Position *moves) {
     int count = 0;
     for (int col = 0; col < BOARD_SIZE; col++) {
-        // Valid moves: In move_mask AND Empty (occupy bit is 1)
+        // 合法落子：在可落子掩码中且为空（占位位为1）
         Line mask = bitBoard->move_mask[col] & bitBoard->occupy[col];
         while (mask) {
-            // __builtin_ctz returns the number of trailing zeros (index of the lowest set bit)
+            // __builtin_ctz返回最低位1的索引（即最低位的行号）
             int row = __builtin_ctz(mask);
             
             moves[count].row = row;
             moves[count].col = col;
             count++;
             
-            // Clear the lowest set bit
+            // 清除最低位的1
             mask &= (mask - 1);
         }
     }
