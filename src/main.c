@@ -137,7 +137,8 @@
 #include "../include/history.h"
 #include "../include/ai.h"
 #include "../include/start_helper.h"
-
+#include "../include/record.h"
+#include "../include/tt.h" //悔棋时使用
 
 void printHelp() {
     printf("Usage: gomoku [options]\n");
@@ -145,6 +146,7 @@ void printHelp() {
     printf("  --mode <pvp|pve>      Set game mode (default: pvp)\n");
     printf("  --rules <std|simple>  Set rules (default: std)\n");
     printf("  --debug renju         Enable Renju debug mode (Black only, type 'white' to switch)\n");
+    printf("  --load <File_Name>    load endgame\n");
 }
 
 //调库实现stdin
@@ -190,7 +192,8 @@ int main(int argc, char *argv[]) {
     RuleType rule = RULE_STANDARD;//默认标准禁手
     int debugRenju = 0;
     int forceWhite = 0;
-
+    int loadflag = 0;//加载棋谱的标记
+    char filename[255];
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             if (strcmp(argv[i+1], "pve") == 0) mode = MODE_PVE;
@@ -209,15 +212,25 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--help") == 0) {
             printHelp();
             return 0;
+        } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc){
+            strcpy(filename, argv[i+1]);
+            loadflag = 1;
         }
     }
-
     GameState game;
-    initGame(&game, mode, rule);
-
+    if(loadflag == 0){
+        initGame(&game, mode, rule);
+    }else{
+        int is_load = load(&game, filename);
+        if(!is_load){
+            printf("err: cannot load endgame\n");
+            exit(1);
+        }
+        printf("load successfully\n");
+    }
     Player aiPlayer = PLAYER_WHITE; 
 
-    if (mode == MODE_PVE) {
+    if (game.mode == MODE_PVE) {
         printf("You selected PvE mode.\n");
         printf("Choose your color (1: Black, 2: White): ");
         char buf[16];
@@ -231,20 +244,19 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
+    system("clear");
     printf("Game Started!\n");
     if (debugRenju) {
         printf("Debug Mode: Renju (Black only). Type 'white' to switch to White for one move.\n");
     } else {
         printf("Mode: %s, Rules: %s\n", mode == MODE_PVP ? "PvP" : "PvE", rule == RULE_STANDARD ? "Standard" : "Simple");
     }
-    printf("Enter moves as 'H8' or '8H', 'undo' to undo, 'quit' to exit.\n");
-
+    int quit_flag = 0;//如果不是quit就说明赢了，悔一步棋再存
     char input[64];
     int running = 1;
-
+    printBoard(&game);
     while (running) {
-        printBoard(&game);
+        //printBoard(&game);
         int winner = checkWin(&game);
         if (winner) {
             printf("Player %s wins!\n", winner == PLAYER_BLACK ? "Black" : "White");
@@ -257,8 +269,12 @@ int main(int argc, char *argv[]) {
 
         if (mode == MODE_PVE && game.currentPlayer == aiPlayer) {
             // AI 局面
+            system("clear");
             printf("AI is thinking...\n");
-            if (start_helper(&game)) continue;
+            if (start_helper(&game)){
+                printBoard(&game);
+                continue;
+            }
 
             Position aiMove = getAIMove(&game);
             if (aiMove.row == -1 || aiMove.col == -1) {
@@ -266,6 +282,7 @@ int main(int argc, char *argv[]) {
                 break;
             }
             makeMove(&game, aiMove.row, aiMove.col);
+            printBoard(&game);
             continue;
         }
 
@@ -277,6 +294,8 @@ int main(int argc, char *argv[]) {
 
         if (strcmp(input, "quit") == 0) {
             running = 0;
+            quit_flag = 1;
+            system("clear");
             break;
         } else if (strcmp(input, "white") == 0 && debugRenju) {
             game.currentPlayer = PLAYER_WHITE;
@@ -284,12 +303,15 @@ int main(int argc, char *argv[]) {
             printf("Next move set to White.\n");
             continue;
         } else if (strcmp(input, "undo") == 0) {
+            tt_clear();//只清理一次
             if (undoMove(&game)) {
-                printf("Undo successful.\n");
+                system("clear");
                 // PvE就悔棋两次以回到玩家执棋
                 if (mode == MODE_PVE) {
                     undoMove(&game);
                 }
+                printBoard(&game);
+                printf("Undo successful.\n");
             } else {
                 printf("Cannot undo.\n");
             }
@@ -300,6 +322,8 @@ int main(int argc, char *argv[]) {
         if (parseCoord(input, &r, &c)) {
             int result = makeMove(&game, r, c);
             if (result == VALID_MOVE) {
+                system("clear");
+                printBoard(&game);
                 if (debugRenju) {//跳过白棋
                     if (forceWhite) {
                         forceWhite = 0;
@@ -322,7 +346,29 @@ int main(int argc, char *argv[]) {
             printf("Invalid input format. Use 'H8' or '8H'.\n");
         }
     }
-
+    if(!quit_flag){
+        if(!undoMove(&game)){
+            printf("err:    cannot undo\n");
+            clearHistory(&game);
+            exit(1);
+        }
+    }
+    printf("Do you want to save the game?   \"yes\" or anything else \n");
+    if(!fgets(input, sizeof(input), stdin)){
+        printf("No input received. Exiting without saving.\n");
+    } else{
+        input[strcspn(input, "\n")] = 0;
+        if(strcmp(input, "yes") == 0){
+            if(!record(&game)){
+                printf("unknown err:    cannot save board\n");
+            }
+            else{
+                printf("successfully saved!\n");
+            }
+        }else{
+            printf("Exiting withour saving.\n");
+        }
+    }
     clearHistory(&game);
     return 0;
 }

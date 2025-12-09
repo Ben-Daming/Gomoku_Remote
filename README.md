@@ -3,8 +3,8 @@
 本项目是国科大24级本科生的c程设大作业五子棋实现。该程序有以下功能：
 - 支持pvp,pve两种玩法
 - 支持自由无限制和标准禁手（含复杂解禁）两种规则
-- 支持悔棋 **注意：由于找不到好的方法缓存巨大的哈希表，悔棋会让ai变笨！**
-
+- 支持悔棋 **2025.12.10 04:00 新增：悔棋对ai智力的影响已修复，但是悔棋后的第一步搜索可能会较慢，为正常现象**
+- 支持保存、载入棋谱，若保存失败，请确保可执行文件有写入、修改文件权限。**(2025.12.10 04:00 新增)**
 ## 2. 目录结构
 ```
 Gomoku/
@@ -22,7 +22,8 @@ Gomoku/
 │   ├── start_helper.h
 │   ├── tt.h
 │   ├── types.h
-│   └── zobrist.h
+│   ├── zobrist.h
+│   └── record.h
 ├── src/                  # 源代码目录
 │   ├── ai.c
 │   ├── ascii_art.c
@@ -34,7 +35,8 @@ Gomoku/
 │   ├── rules.c
 │   ├── start_helper.c
 │   ├── tt.c
-│   └── zobrist.c
+│   ├── zobrist.c
+│   └── record.c
 ├──Develop_Doc.md
 └── README.md
 ```
@@ -56,22 +58,30 @@ make
 本人不熟悉windows，以下命令行指令在unix类系统中通用
 ```bash
 make release
-./build/gomoku 
+./build/gomoku-release
 ```
 无参数时，默认会使用pve+标准禁手
 
 
 ```bash
-./build/gomoku --mode pvp
+./build/gomoku-release --mode pvp
 ```
 可以使用`--mode`来显示指明采用pvp/pve模式
 
 若尝试无禁手模式，则可以使用`--rules`来显式指定规则集，例如指定在无禁手规则下pvp对战：
 ```bash
-./build/gomoku --mode pvp --rules simple 
+./build/gomoku-release --mode pvp --rules simple 
 ```
 
-输入`./build/gomoku --help`可以查看相关参数
+输入`./build/gomoku-release --help`可以查看相关参数
+
+若有保存棋谱的需求，在退出游戏时根据指示输入`yes`,程序会自动将棋谱以保存时间为文件名保存到`./game_records`目录中，若该目录不存在，会自动创建
+
+加载棋谱：使用命令行参数`--load <文件路径/文件名>`即可，游戏模式、规则等自动和棋谱内容保存一致，先后手可选
+```bash
+./build/gomoku-release --load ./game_records/2025-12-10_03_53_19.txt
+```
+
 
 ## 4.开发者
 - 本项目欢迎参考代码及出于学习用途的fork

@@ -13,24 +13,26 @@ graph TD
                 tt[(tt.* zobrist.* / 哈希置换表)]
 
                 evaluate(evaluate.* / 评分函数)
+
             end
         
         end
     start_helper(start_helper.* / 起手定式)
     end
-    subgraph BOARD_MODULE[基本局面逻辑 / pvp]
+    subgraph BOARD_MODULE[基本业务逻辑 / pvp]
         board(board.* / 棋盘打印,落子 )
         rule(rules.* / 禁手判断、胜利判断逻辑 )
         history(history.* / 历史栈实现悔棋)
+        record([record.* / 记录、写入棋谱])
     end
 
     BOARD_MODULE --> |更新位棋盘| bitBoard
     AI_CORE --> |返回落子点| main
     start_helper --> |返回落子点| main
     start_helper -.-> |提前跳过| AI_MODULE
-    main --> |更新棋盘| BOARD_MODULE
+    main --> |发起业务请求| BOARD_MODULE
     main --> |请求ai| AI_ALL
-    BOARD_MODULE --> |返回落子情况| main
+    BOARD_MODULE --> |返回业务状态| main
     AI_MODULE -.-> bitBoard
     bitBoard -.-> AI_MODULE
 
@@ -49,7 +51,7 @@ graph TD
 
 ### AI引擎
 此模块是负责ai计算的模块：
-- bitBoard:位棋盘，AI模块专用的数据结构，它和`基本局面逻辑`模块中的board同步更新，也是`AI引擎`模块获取外界棋局信息的唯一通道。每个玩家都有自己的位棋盘，包括15条row,15条col，以及两个对角线分别29条，共88 * 2 = 176条 `unsigned short` 类型的位表示。
+- bitBoard:位棋盘，AI模块专用的数据结构，它和`基本业务逻辑`模块中的board同步更新，也是`AI引擎`模块获取外界棋局信息的唯一通道。每个玩家都有自己的位棋盘，包括15条row,15条col，以及两个对角线分别29条，共88 * 2 = 176条 `unsigned short` 类型的位表示。
 - AI核心模块：执行搜索算法、局面评估的核心模块，cpu周期数开销占总开销的75%以上
 
 #### AI核心模块
@@ -60,12 +62,13 @@ graph TD
   - 自带以较低开销完成的简单禁手判断，只需对`evaluate`评估的分数返回值进行掩码运算即可
 - `哈希置换表`存储了某一局面特有的ai分析信息，比如搜索层数、评估分数、分数类型等。
 
-## 基本局面逻辑
+## 基本业务逻辑
 
 处理落子、悔棋、禁手判断、胜负手判断的独立模块。离开ai模块也能独立完成pvp工作。
 - 悔棋：结构体`gameState`包含局面所需的全部信息，故只需向history栈中压入`gameState`就可以实现悔棋。
 - 规则判断：`rules.*`实现了递归判断复杂禁手，同样采用位运算
 - 基本棋盘逻辑：`board.*`提供了判断棋盘是否已满、在棋盘上落子、在stdout上打印棋盘（以及超天酱）等基础接口
+- 导入、导出棋谱：`record.*`通过系统调用实现棋谱的导入导出
 ## 一些杂碎
 
 最初的版本采用一次评估一个方向的`evaluate`+朴素的`alpha-beta`剪枝搜索，只能在可行的时间内执行6层递归搜索。能够来到高效的12层搜索，离不开`evaluate`层、数据结构以及搜索算法层的不断优化。

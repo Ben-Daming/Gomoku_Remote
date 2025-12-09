@@ -101,6 +101,8 @@ void printBoard(const GameState *game) {
             printf("    %s\n", art_arr[k]);
         }
     }
+    printf("Enter moves as 'H8' or '8H', 'undo' to undo, 'quit' to exit.\n");
+
     //调试日志
     // printf("\n--- BitBoard Debug Info (Cols) ---\n");
     // printf("Row | Black           | White           | Occupy          | Move Mask\n");
