@@ -186,7 +186,7 @@ int parseCoord(const char *str, int *row, int *col) {
 }
 
 int main(int argc, char *argv[]) {
-    GameMode mode = MODE_PVP;//默认PvP
+    GameMode mode = MODE_PVE;//默认PvE
     RuleType rule = RULE_STANDARD;//默认标准禁手
     int debugRenju = 0;
     int forceWhite = 0;
