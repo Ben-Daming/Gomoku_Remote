@@ -1,4 +1,5 @@
 # 说明文档
+**Congratulations:本项目以决赛组7胜0负的好成绩荣获UCAS2025年张新峰班第一名！**
 ## 1. 概述
 本项目是国科大24级本科生的c程设大作业五子棋实现。该程序有以下功能：
 - 支持pvp,pve两种玩法
@@ -37,7 +38,8 @@ Gomoku/
 │   ├── tt.c
 │   ├── zobrist.c
 │   └── record.c
-├──Develop_Doc.md
+├──API_Reference.md      # 各API文档
+├──Develop_Doc.md        # 开发日志
 └── README.md
 ```
 
